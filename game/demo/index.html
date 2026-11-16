@@ -1,180 +1,57 @@
 <title>천사의 고원</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
 <style>
-/* Layout: one 480x820 portrait field. Angel in the sky above, a fixed marble "stage" box in the middle where Rota dodges,
-   a turn panel (dialogue + actions) below. Single deliberate look: dusk above the clouds; light is gold-white, shadow is ink-violet. */
+/* Layout: one 240x410 pixel screen, scaled up with hard pixels. Sky and angel on top, the fixed stage box in the middle,
+   the talk panel and three actions below. Everything is drawn into an indexed framebuffer; the DOM only carries invisible buttons.
+   Palette rule: the world is sky blue and white marble, light is the only yellow, shadow is the only ink navy, Rota is the only red. */
 :root {
-  --night: #141a2c;
-  --ink: rgba(15, 19, 33, 0.9);
-  --ink-solid: #0f1321;
-  --paper: #eef0f3;
-  --muted: #a9b4c6;
-  --light: #ffe0a0;
-  --shade: #b3a6ff;
-  --line: rgba(238, 240, 243, 0.16);
-  --font-journal: "Gowun Batang", "Nanum Myeongjo", "AppleMyungjo", "Batang", serif;
-  --font-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --letterbox: #161b3d;
+  --ink: #161b3d;
+  --marble: #f6f8ff;
+  --light: #ffd257;
   color-scheme: dark;
 }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
-body { background: var(--night); color: var(--paper); font-family: var(--font-ui); -webkit-user-select: none; user-select: none; }
-#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-#probe { position: fixed; visibility: hidden; pointer-events: none; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
-
-/* Everything inside #field is sized in em; JS sets font-size = 16px x field scale. */
-#field { position: fixed; pointer-events: none; }
-.top { position: absolute; left: 0.75em; right: 0.75em; top: 0.75em; display: flex; gap: 0.6em; align-items: center; }
-.boss { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr auto; gap: 0.7em; align-items: center;
-  background: var(--ink); border: 1px solid var(--line); border-radius: 0.4em; padding: 0.5em 0.8em; }
-.boss .name { font-family: var(--font-journal); font-weight: 700; font-size: 0.95em; }
-.bar { height: 0.42em; border-radius: 0.21em; background: rgba(238,240,243,.14); overflow: hidden; }
-.bar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #fff6d8, var(--light)); transition: width .25s; }
-#bossNum { font-size: 0.75em; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 2.2em; text-align: right; }
-.ghost { pointer-events: auto; font: 500 0.75em var(--font-ui); color: var(--muted); background: var(--ink); border: 1px solid var(--line);
-  border-radius: 0.5em; padding: 0.75em 0.8em; cursor: pointer; white-space: nowrap; }
-.ghost:hover { color: var(--paper); }
-.ghost:focus-visible, .act:focus-visible, .btn:focus-visible { outline: 2px solid var(--light); outline-offset: 2px; }
-
-#panel { position: absolute; left: 0.75em; right: 0.75em; top: 70.6%; bottom: 0.75em; box-sizing: border-box;
-  background: var(--ink); border: 1px solid var(--line); border-radius: 0.5em; padding: 0.85em 1em; display: flex; flex-direction: column; gap: 0.6em; }
-.row1 { display: flex; align-items: center; gap: 0.6em; }
-.label { font-size: 0.72em; letter-spacing: 0.08em; color: var(--muted); white-space: nowrap; }
-#hp { display: flex; gap: 0.3em; }
-#hp i { width: 0.6em; height: 0.6em; transform: rotate(45deg); background: var(--paper); display: block; transition: background .2s, opacity .2s; }
-#hp i.lost { background: transparent; box-shadow: inset 0 0 0 1.5px rgba(238,240,243,.35); }
-#turnNo { margin-left: auto; font-variant-numeric: tabular-nums; }
-#say { flex: 1; min-height: 0; margin: 0; font-family: var(--font-journal); font-size: 1.02em; line-height: 1.65; white-space: pre-line; overflow: hidden; }
-#say b { color: var(--light); font-weight: 700; }
-#menu { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5em; }
-.act { pointer-events: auto; font: 600 0.88em var(--font-ui); color: var(--paper); background: rgba(238,240,243,.05);
-  border: 1px solid var(--line); border-radius: 0.45em; padding: 0.8em 0.4em; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 0.15em; }
-.act small { font-weight: 400; font-size: 0.78em; color: var(--muted); }
-.act:hover:not(:disabled), .act:focus-visible { background: rgba(255,224,160,.14); border-color: rgba(255,224,160,.55); color: var(--light); }
-.act:disabled { opacity: .35; cursor: default; }
-#timer { height: 0.3em; border-radius: 0.15em; background: rgba(238,240,243,.12); overflow: hidden; }
-#timer i { display: block; height: 100%; width: 0; background: var(--light); }
-
-.overlay {
-  position: fixed; inset: 0; display: grid; place-items: center; z-index: 5;
-  padding-block: calc(16px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-bottom, 0px));
+body { background: var(--letterbox); color: var(--marble); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+#stage {
+  position: fixed; inset: 0; display: grid; place-items: center; box-sizing: border-box;
+  padding-block: env(safe-area-inset-top, 0px) env(safe-area-inset-bottom, 0px);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
-  background: rgba(10, 13, 24, 0.6);
+  touch-action: none;
 }
-.panel {
-  width: min(100%, 34rem); max-height: 100%; overflow: auto; box-sizing: border-box;
-  background: var(--ink); border: 1px solid var(--line); border-radius: 8px;
-  padding: clamp(20px, 4vw, 30px); display: grid; gap: 16px;
-}
-.panel.page { background: #ece6d8; color: #2a2433; border-color: #cfc6b1; }
-.page .eyebrow { color: #6f6656; }
-.page .journal { border-left-color: rgba(120,92,40,.4); }
-.page .journal .em { color: #7a4f12; }
-.page .aside { color: #5d5649; }
-.page .btn { background: #2a2433; color: #ece6d8; }
-.page .btn:hover { background: #3a3346; }
-.eyebrow { font-size: 11px; letter-spacing: .14em; color: var(--muted); }
-.panel h1 { margin: 0; font-family: var(--font-journal); font-weight: 700; font-size: clamp(22px, 5vw, 28px); line-height: 1.3; text-wrap: balance; }
-.journal { font-family: var(--font-journal); font-size: 16px; line-height: 1.9; margin: 0; padding-left: 14px; border-left: 2px solid rgba(255,224,160,.45); display: grid; gap: 2px; }
-.journal p { margin: 0; }
-.journal .em { color: var(--light); }
-.rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; font-size: 14px; line-height: 1.6; }
-.rules li { display: grid; grid-template-columns: 1.4em 1fr; }
-.rules li::before { content: ""; width: 7px; height: 7px; margin-top: .6em; transform: rotate(45deg); background: var(--light); }
-.rules b { color: var(--light); font-weight: 600; }
-.aside { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 0; }
-.keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px; align-items: center; margin: 0; }
-.keys dt { white-space: nowrap; }
-.keys dd { margin: 0; color: var(--muted); }
-kbd { font: 600 12px var(--font-ui); background: rgba(238,240,243,.1); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 2px 7px; color: var(--paper); }
-.btn { justify-self: start; font: 600 15px var(--font-ui); color: var(--ink-solid); background: var(--light); border: 0; border-radius: 6px; padding: 12px 20px; cursor: pointer; }
-.btn:hover { background: #fff0c4; }
-body.touch .kbd-only { display: none; }
-body:not(.touch) .touch-only { display: none; }
+#field { position: relative; }
+#c { display: block; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
+/* Invisible hit areas. The canvas draws each button, including its focused look. */
+.hit { position: absolute; margin: 0; padding: 0; border: 0; background: transparent; color: transparent; font-size: 1px; overflow: hidden; cursor: pointer; outline: none; }
+.hit:disabled { cursor: default; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 </style>
 
-<canvas id="c" aria-label="전투 화면"></canvas>
-<div id="probe"></div>
-
-<div id="field">
-  <div class="top" id="top" hidden>
-    <div class="boss"><span class="name">천사</span><div class="bar"><i id="bossFill"></i></div><span id="bossNum">100</span></div>
-    <button class="ghost" id="snd" type="button">소리 끄기</button>
+<div id="stage">
+  <div id="field">
+    <canvas id="c" width="240" height="410" role="img" aria-label="전투 화면"></canvas>
+    <button class="hit" id="snd" type="button" hidden>소리 끄기</button>
+    <button class="hit" id="actFight" type="button" data-act="fight" hidden>맞선다</button>
+    <button class="hit" id="actJournal" type="button" data-act="journal" hidden>일지 펴기</button>
+    <button class="hit" id="actSky" type="button" data-act="sky" hidden>하늘을 본다</button>
+    <button class="hit" id="startBtn" type="button" hidden>일지를 덮고 일어선다</button>
+    <button class="hit" id="jClose" type="button" hidden>일지를 덮고 맞선다</button>
+    <button class="hit" id="retryBtn" type="button" hidden>이 차례부터 다시</button>
+    <button class="hit" id="againBtn" type="button" hidden>처음부터 다시</button>
   </div>
-  <section id="panel" hidden>
-    <div class="row1"><span class="label">로타의 숨</span><span id="hp"></span><span class="label" id="turnNo"></span></div>
-    <p id="say" aria-live="polite"></p>
-    <div id="menu" role="group" aria-label="행동">
-      <button class="act" type="button" id="actFight" data-act="fight">맞선다<small>빛 속으로</small></button>
-      <button class="act" type="button" id="actJournal" data-act="journal">일지 펴기<small id="jLeft">3장 남음</small></button>
-      <button class="act" type="button" id="actSky" data-act="sky">하늘을 본다<small id="sLeft">2번 남음</small></button>
-    </div>
-    <div id="timer" hidden><i id="timerFill"></i></div>
-  </section>
 </div>
+<p class="sr" id="say" aria-live="polite"></p>
 
-<section class="overlay" id="intro">
-  <div class="panel">
-    <div class="eyebrow">셋째 날 · 천사의 고원</div>
-    <h1>천사가 내려온다</h1>
-    <ul class="rules">
-      <li><span>가운데 상자 안에서 <b>빛을 피하세요.</b> 맞는 곳은 로타 한가운데 점뿐이에요.</span></li>
-      <li><span>빛이 가까이 스치면 로타의 그림자가 빛 반대쪽으로 뻗어요. <b>빛, 로타, 천사가 한 줄</b>이 되면 그림자가 천사를 쳐요. 가까이 스칠수록 그림자가 길고 세요.</span></li>
-      <li><span>피하기만 해도 괜찮아요. 한 차례를 버틸 때마다 천사의 빛이 조금씩 바래요.</span></li>
-      <li><span>차례 사이에는 <b>일지</b>를 펴서 빛과 그림자가 맞닿는 자리를 보거나, <b>하늘</b>을 보며 숨을 고를 수 있어요.</span></li>
-    </ul>
-    <dl class="keys">
-      <dt class="kbd-only"><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> / 방향키</dt><dd class="kbd-only">이동, 차례 사이에는 행동 고르기</dd>
-      <dt class="kbd-only"><kbd>Shift</kbd> 누르고 있기</dt><dd class="kbd-only">천천히 움직이기, 스치는 범위가 보임</dd>
-      <dt class="kbd-only"><kbd>Enter</kbd> / <kbd>Z</kbd></dt><dd class="kbd-only">고르기, 글 넘기기</dd>
-      <dt class="touch-only">화면 아무 곳이나 끌기</dt><dd class="touch-only">이동, 손가락이 움직인 만큼 따라 움직임</dd>
-    </dl>
-    <button class="btn" id="startBtn" type="button">일지를 덮고 일어선다</button>
-  </div>
-</section>
-
-<section class="overlay" id="journal" hidden>
-  <div class="panel page">
-    <div class="eyebrow" id="jEyebrow">카엘룸의 일지</div>
-    <h1 id="jTitle"></h1>
-    <div class="journal" id="jBody"></div>
-    <p class="aside" id="jAside"></p>
-    <button class="btn" id="jClose" type="button">일지를 덮고 맞선다</button>
-  </div>
-</section>
-
-<section class="overlay" id="lose" hidden>
-  <div class="panel">
-    <div class="eyebrow">로타가 쓰러졌다</div>
-    <h1>빛이 너무 밝았다</h1>
-    <div class="journal"><p>다시 일어나게. 빛이 있는 한 그림자도 있다네.</p></div>
-    <button class="btn" id="retryBtn" type="button">이 차례부터 다시</button>
-  </div>
-</section>
-
-<section class="overlay" id="win" hidden>
-  <div class="panel">
-    <div class="eyebrow">그날 밤 · 로타는 맹세를 깨고 일지를 넘겼다</div>
-    <h1>괴물에 관하여</h1>
-    <div class="journal">
-      <p>천사를 넘었다면, 남은 것은 정상뿐이네.</p>
-      <p>괴물은 천사보다 훨씬 약하니 걱정 말게.</p>
-      <p class="em">너도 꼭, 나와 같이 하늘 같은 자가 되길.</p>
-    </div>
-    <p class="aside" id="winStat"></p>
-    <button class="btn" id="againBtn" type="button">처음부터 다시</button>
-  </div>
-</section>
-
+<script src="font.js"></script>
 <script>
 (function () {
   "use strict";
-  const W = 480, H = 820, TAU = Math.PI * 2;
-  const B = { x: 60, y: 300, w: 360, h: 258 };   // the stage box
+  // The simulation runs in a 480x820 logical field. The screen is exactly half of that: 240x410 pixels.
+  const W = 480, H = 820, FW = 240, FH = 410, TAU = Math.PI * 2;
+  const B = { x: 60, y: 284, w: 360, h: 258 };   // the stage box (logical)
+  const BX = B.x / 2, BY = B.y / 2, BW = B.w / 2, BH = B.h / 2;
   const G = 62;          // graze radius: light closer than this casts Rota's shadow
   const AHIT = 44;       // shadow must pass within this of the angel
   const PMAX = 6, ENDURE = 8;
@@ -182,38 +59,212 @@ body:not(.touch) .touch-only { display: none; }
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const rnd = (a, b) => a + Math.random() * (b - a);
-  const cv = $("c"), ctx = cv.getContext("2d"), fieldEl = $("field");
+  const q = (v) => Math.round(v / 2);            // logical -> screen pixel
+  const cv = $("c"), ctx = cv.getContext("2d"), fieldEl = $("field"), stageEl = $("stage"), srEl = $("say");
 
-  // ---------- Sprites ----------
-  function sprite(size, draw) { const c = document.createElement("canvas"); c.width = c.height = size; draw(c.getContext("2d"), size / 2); return c; }
-  const glowSpr = sprite(128, (g, c) => {
-    const gr = g.createRadialGradient(c, c, 0, c, c, c);
-    gr.addColorStop(0, "rgba(255,240,200,0.6)"); gr.addColorStop(0.35, "rgba(255,226,160,0.2)"); gr.addColorStop(1, "rgba(255,226,160,0)");
-    g.fillStyle = gr; g.fillRect(0, 0, c * 2, c * 2);
-  });
-  const coreSpr = sprite(32, (g, c) => {
-    const gr = g.createRadialGradient(c, c, 0, c, c, c);
-    gr.addColorStop(0, "#ffffff"); gr.addColorStop(0.5, "#fff6dc"); gr.addColorStop(0.8, "#ffd98a"); gr.addColorStop(1, "rgba(255,200,110,0)");
-    g.fillStyle = gr; g.beginPath(); g.arc(c, c, c, 0, TAU); g.fill();
-  });
+  // ---------- Palette ----------
+  const PAL = [
+    "#000000", // 0 transparent in sprites
+    "#161b3d", // 1 INK    outlines, shadows, text
+    "#27306b", // 2 DEEP   weak shadow, secondary text
+    "#3558b8", // 3 BLUE   pennant blue, emphasis
+    "#4f86d9", // 4 SKY1
+    "#6fa3e6", // 5 SKY2
+    "#9cc3f2", // 6 SKY3
+    "#cfe2fa", // 7 HAZE
+    "#f6f8ff", // 8 WHITE  lit marble
+    "#d7dff5", // 9 MARB1
+    "#aebbe3", // 10 MARB2
+    "#7f8dc6", // 11 MARB3
+    "#ffd257", // 12 SUN   light
+    "#fff1b0", // 13 SUNP
+    "#fffbe6", // 14 SUNC
+    "#f0932e", // 15 ORNG  edge of light
+    "#df4b43", // 16 RED   Rota
+    "#ff9a86", // 17 PINK
+    "#4f9e58", // 18 GRN
+    "#2f6b4a", // 19 GRND
+    "#f2e4c0", // 20 PAPER journal
+    "#dcc89a", // 21 PAPER2
+    "#5a3a2a", // 22 BROWN
+    "#96603c", // 23 BROWN2
+    "#9c2a35", // 24 REDD
+  ];
+  const C = { INK: 1, DEEP: 2, BLUE: 3, SKY1: 4, SKY2: 5, SKY3: 6, HAZE: 7, WHITE: 8, MARB1: 9, MARB2: 10, MARB3: 11, SUN: 12, SUNP: 13, SUNC: 14, ORNG: 15,
+    RED: 16, PINK: 17, GRN: 18, GRND: 19, PAPER: 20, PAPER2: 21, BROWN: 22, BROWN2: 23, REDD: 24 };
+  const rgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const abgr = (r, g, b) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
+  const pal32 = new Uint32Array(PAL.map((h) => abgr(...rgb(h))));
+  // impact frame: the whole screen snaps to two tones for a moment
+  const palHit = new Uint32Array(PAL.map((h) => { const [r, g, b] = rgb(h); return 0.3 * r + 0.59 * g + 0.11 * b > 150 ? abgr(246, 248, 255) : abgr(22, 27, 61); }));
+
+  // ---------- Pixel surface ----------
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const surf = (w, h) => ({ w, h, d: new Uint8Array(w * h) });
+  let S = null, cx0 = 0, cy0 = 0, cx1 = 0, cy1 = 0;
+  function target(s) { S = s; cx0 = 0; cy0 = 0; cx1 = s.w; cy1 = s.h; }
+  function setClip(x, y, w, h) { cx0 = Math.max(0, x); cy0 = Math.max(0, y); cx1 = Math.min(S.w, x + w); cy1 = Math.min(S.h, y + h); }
+  function noClip() { cx0 = 0; cy0 = 0; cx1 = S.w; cy1 = S.h; }
+  function px(x, y, c) { if (x >= cx0 && x < cx1 && y >= cy0 && y < cy1) S.d[y * S.w + x] = c; }
+  // lv: dither level 1..16 (16 or undefined = solid)
+  function rect(x, y, w, h, c, lv) {
+    x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+    const x0 = Math.max(cx0, x), y0 = Math.max(cy0, y), x1 = Math.min(cx1, x + w), y1 = Math.min(cy1, y + h), d = S.d, sw = S.w;
+    if (lv === undefined || lv >= 16) { for (let yy = y0; yy < y1; yy++) d.fill(c, yy * sw + x0, yy * sw + Math.max(x0, x1)); return; }
+    for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) if (BAYER[(yy & 3) * 4 + (xx & 3)] < lv) d[yy * sw + xx] = c;
+  }
+  function frame(x, y, w, h, c) { rect(x, y, w, 1, c); rect(x, y + h - 1, w, 1, c); rect(x, y, 1, h, c); rect(x + w - 1, y, 1, h, c); }
+  function line(x0, y0, x1, y1, c, dash) {
+    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let e = dx + dy, i = 0;
+    for (let n = 0; n < 2000; n++) {
+      if (!dash || (i++ % dash) < (dash >> 1)) px(x0, y0, c);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; }
+    }
+  }
+  function disc(cx, cy, r, c, lv) {
+    cx = Math.round(cx); cy = Math.round(cy);
+    const rr = r * r + r * 0.8;
+    for (let y = -Math.ceil(r); y <= r; y++) { const hw = Math.floor(Math.sqrt(Math.max(0, rr - y * y))); if (y * y <= rr) rect(cx - hw, cy + y, hw * 2 + 1, 1, c, lv); }
+  }
+  function ring(cx, cy, r, c, dash) {
+    cx = Math.round(cx); cy = Math.round(cy);
+    const n = Math.max(8, Math.round(r * 6.4));
+    let lx = null, ly = null, i = 0;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * TAU, x = Math.round(cx + Math.cos(a) * r), y = Math.round(cy + Math.sin(a) * r);
+      if (x === lx && y === ly) continue;
+      lx = x; ly = y;
+      if (!dash || (i++ % dash) < (dash >> 1)) px(x, y, c);
+    }
+  }
+  // filled polygon, hard edges; p = [x0,y0,x1,y1,...]
+  function poly(p, c, lv) {
+    let minY = 1e9, maxY = -1e9; const n = p.length >> 1;
+    for (let i = 0; i < n; i++) { minY = Math.min(minY, p[i * 2 + 1]); maxY = Math.max(maxY, p[i * 2 + 1]); }
+    const ya = Math.max(cy0, Math.floor(minY)), yb = Math.min(cy1 - 1, Math.ceil(maxY)), xs = [];
+    for (let y = ya; y <= yb; y++) {
+      const sy = y + 0.5; xs.length = 0;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n, x1 = p[i * 2], y1 = p[i * 2 + 1], x2 = p[j * 2], y2 = p[j * 2 + 1];
+        if ((y1 <= sy && y2 > sy) || (y2 <= sy && y1 > sy)) xs.push(x1 + (sy - y1) / (y2 - y1) * (x2 - x1));
+      }
+      xs.sort((a, b) => a - b);
+      for (let i = 0; i + 1 < xs.length; i += 2) { const xa = Math.ceil(xs[i] - 0.5), xb = Math.floor(xs[i + 1] - 0.5); if (xb >= xa) rect(xa, y, xb - xa + 1, 1, c, lv); }
+    }
+  }
+  // o.tint: draw every opaque pixel in one colour. o.lv: dither level.
+  function blit(sp, x, y, o) {
+    x = Math.round(x); y = Math.round(y);
+    const tint = o && o.tint, lv = o && o.lv, d = S.d, sw = S.w, sd = sp.d, w = sp.w;
+    for (let yy = 0; yy < sp.h; yy++) {
+      const ty = y + yy; if (ty < cy0 || ty >= cy1) continue;
+      for (let xx = 0; xx < w; xx++) {
+        const c = sd[yy * w + xx]; if (!c) continue;
+        const tx = x + xx; if (tx < cx0 || tx >= cx1) continue;
+        if (lv !== undefined && BAYER[(ty & 3) * 4 + (tx & 3)] >= lv) continue;
+        d[ty * sw + tx] = tint || c;
+      }
+    }
+  }
+  // put a 1px outline around everything opaque on a surface
+  function outline(s, c) {
+    const src = s.d.slice(), w = s.w, h = s.h, d = s.d;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (src[y * w + x]) continue;
+      if ((x > 0 && src[y * w + x - 1]) || (x < w - 1 && src[y * w + x + 1]) || (y > 0 && src[(y - 1) * w + x]) || (y < h - 1 && src[(y + 1) * w + x])) d[y * w + x] = c;
+    }
+  }
+  function spr(rows, map) {
+    const s = surf(rows[0].length, rows.length);
+    rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) s.d[y * s.w + x] = map[r[x]] || 0; });
+    return s;
+  }
+  function mulberry(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+  // ---------- Pixel font (Galmuri, see font.js) ----------
+  function mkFont(src, cap, pitch) {
+    const idx = new Map(), recs = src.data.split(" "), cache = new Map();
+    Array.from(src.chars).forEach((ch, i) => idx.set(ch, i));
+    const f = { cap, pitch, glyph(ch) {
+      let g = cache.get(ch); if (g) return g;
+      const i = idx.get(ch); if (i === undefined) return ch === "?" ? null : f.glyph("?");
+      const r = recs[i], bin = atob(r.slice(5));
+      g = { adv: r.charCodeAt(0) - 48, w: r.charCodeAt(1) - 48, h: r.charCodeAt(2) - 48, xo: r.charCodeAt(3) - 56, yo: r.charCodeAt(4) - 56, bin };
+      cache.set(ch, g); return g;
+    } };
+    return f;
+  }
+  const F11 = mkFont(window.GAME_FONTS.f11, 11, 14), F9 = mkFont(window.GAME_FONTS.f9, 9, 12);
+  function textW(str, f, sc) { let w = 0; for (const ch of str) { const g = f.glyph(ch); if (g) w += g.adv; } return (w - 1) * (sc || 1); }
+  function glyphAt(g, x, base, c, sc) {
+    for (let r = 0, i = 0; r < g.h; r++) for (let k = 0; k < g.w; k++, i++) {
+      if (g.bin.charCodeAt(i >> 3) & (0x80 >> (i & 7))) { if (sc === 1) px(x + g.xo + k, base - g.yo - g.h + r, c); else rect(x + (g.xo + k) * sc, base - (g.yo + g.h - r) * sc, sc, sc, c); }
+    }
+  }
+  // y is the top of a capital/Hangul glyph
+  function text(str, x, y, c, f, sc) {
+    sc = sc || 1; x = Math.round(x); y = Math.round(y);
+    for (const ch of str) { const g = f.glyph(ch); if (!g) continue; glyphAt(g, x, y + f.cap * sc, c, sc); x += g.adv * sc; }
+    return x;
+  }
+  function textO(str, x, y, c, oc, f, sc) {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) text(str, x + dx, y + dy, oc, f, sc);
+    text(str, x, y, c, f, sc);
+  }
+  const textC = (str, cx, y, c, f, sc) => text(str, cx - textW(str, f, sc) / 2, y, c, f, sc);
+  const textCO = (str, cx, y, c, oc, f, sc) => textO(str, Math.round(cx - textW(str, f, sc) / 2), y, c, oc, f, sc);
+  // "<b>..</b>" marks emphasis. Returns lines of cells {ch, hl}; wraps at spaces, falls back to breaking a long word.
+  function wrap(str, maxW, f) {
+    const cells = []; let hl = false;
+    for (let i = 0; i < str.length; i++) {
+      if (str.startsWith("<b>", i)) { hl = true; i += 2; continue; }
+      if (str.startsWith("</b>", i)) { hl = false; i += 3; continue; }
+      cells.push({ ch: str[i], hl });
+    }
+    const adv = (c) => { const g = f.glyph(c.ch); return g ? g.adv : 0; };
+    const lines = [[]]; let w = 0, i = 0;
+    while (i < cells.length) {
+      const cur = lines[lines.length - 1];
+      if (cells[i].ch === " ") { if (cur.length) { cur.push(cells[i]); w += adv(cells[i]); } i++; continue; }
+      let j = i, ww = 0; while (j < cells.length && cells[j].ch !== " ") { ww += adv(cells[j]); j++; }
+      if (w + ww > maxW && cur.length) { lines.push([]); w = 0; continue; }
+      if (ww > maxW) { for (; i < j; i++) { if (w + adv(cells[i]) > maxW) { lines.push([]); w = 0; } lines[lines.length - 1].push(cells[i]); w += adv(cells[i]); } continue; }
+      for (; i < j; i++) cur.push(cells[i]);
+      w += ww;
+    }
+    return lines;
+  }
+  function drawLines(lines, x, y, f, pitch, c, hc, limit) {
+    let n = 0;
+    for (const ln of lines) {
+      let xx = x;
+      for (const cell of ln) { if (limit !== undefined && n >= limit) return n; const g = f.glyph(cell.ch); if (g) { glyphAt(g, xx, y + f.cap, cell.hl ? hc : c, 1); xx += g.adv; } n++; }
+      y += pitch;
+    }
+    return n;
+  }
 
   // ---------- Layout ----------
-  let dpr = 1, scale = 1, ox = 0, oy = 0;
+  let cssPx = 1;   // css pixels per screen pixel
   function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const vw = innerWidth, vh = innerHeight;
-    cv.width = Math.round(vw * dpr); cv.height = Math.round(vh * dpr);
-    const ps = getComputedStyle($("probe"));
-    const st = parseFloat(ps.paddingTop) || 0, sb = parseFloat(ps.paddingBottom) || 0;
-    const ah = vh - st - sb;
-    scale = Math.min(vw / W, ah / H);
-    ox = (vw - W * scale) / 2; oy = st + (ah - H * scale) / 2;
-    Object.assign(fieldEl.style, { left: ox + "px", top: oy + "px", width: W * scale + "px", height: H * scale + "px", fontSize: 16 * scale + "px" });
-    skyGrad = null;
+    const cs = getComputedStyle(stageEl);
+    const aw = stageEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const ah = stageEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const dpr = window.devicePixelRatio || 1, s = Math.min(aw / FW, ah / FH), k = Math.floor(s * dpr);
+    const whole = k >= 2 && k / (s * dpr) >= 0.85;          // whole device pixels per game pixel when it costs little size
+    cssPx = whole ? k / dpr : s;
+    // otherwise blow the picture up by a whole factor first and let the browser shrink it smoothly, so pixels stay even
+    const mult = whole ? k : Math.max(2, Math.ceil(s * dpr));
+    cv.width = FW * mult; cv.height = FH * mult; ctx.imageSmoothingEnabled = false;
+    cv.style.imageRendering = whole ? "pixelated" : "auto";
+    fieldEl.style.width = FW * cssPx + "px"; fieldEl.style.height = FH * cssPx + "px";
   }
   addEventListener("resize", resize);
 
-  // ---------- Sound ----------
+  // ---------- Sound (square waves and noise, like an old console) ----------
   let ac = null, muted = false;
   function audioOn() {
     try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); } catch (e) { ac = null; }
@@ -235,24 +286,24 @@ body:not(.touch) .touch-only { display: none; }
     s.connect(f).connect(g).connect(ac.destination); s.start(t); s.stop(t + dur);
   }
   const sfx = {
-    strike(s, c) { tone(150, 42, 0.22, "sine", 0.5 + 0.35 * s); noise(0.12, 0.25 + 0.3 * s, 900); tone(620 * (1 + Math.min(c, 8) * 0.07), 600 * (1 + Math.min(c, 8) * 0.07), 0.45, "triangle", 0.09, 0.03); },
-    tick() { tone(300, 180, 0.08, "sine", 0.08); },
-    hurt() { tone(180, 60, 0.3, "square", 0.08); noise(0.2, 0.2, 400); },
-    select() { tone(540, 540, 0.05, "triangle", 0.05); },
-    turn() { tone(880, 880, 0.5, "sine", 0.05); tone(1320, 1320, 0.6, "sine", 0.03, 0.08); },
-    heal() { tone(520, 780, 0.5, "sine", 0.06); },
-    page() { noise(0.25, 0.12, 2400); },
+    strike(s, c) { const up = 1 + Math.min(c, 8) * 0.08; noise(0.1 + 0.08 * s, 0.3 + 0.3 * s, 700); tone(190, 45, 0.16 + 0.1 * s, "square", 0.1 + 0.08 * s); tone(520 * up, 780 * up, 0.09, "square", 0.05, 0.04); },
+    tick() { tone(240, 150, 0.06, "square", 0.04); },
+    hurt() { tone(220, 55, 0.28, "square", 0.09); noise(0.2, 0.2, 400); },
+    select() { tone(660, 660, 0.04, "square", 0.035); },
+    blip() { tone(420, 400, 0.03, "square", 0.018); },
+    turn() { tone(660, 660, 0.09, "square", 0.04); tone(990, 990, 0.16, "square", 0.04, 0.09); },
+    heal() { tone(520, 520, 0.08, "square", 0.04); tone(660, 660, 0.08, "square", 0.04, 0.08); tone(780, 780, 0.16, "square", 0.04, 0.16); },
+    page() { noise(0.22, 0.12, 2400); },
   };
 
   // ---------- State ----------
   const P = { x: 0, y: 0, hp: PMAX, inv: 0, focus: false };
-  const A = { x: W / 2, y: 160, hp: 100, flash: 0, kx: 0, ky: 0, dying: 0 };
-  let L = [], pend = [], parts = [], texts = [], shadows = [], timers = [];
-  let state = "intro", simT = 0, freeze = 0, shake = 0, inkFlash = 0;
+  const A = { x: W / 2, y: 150, hp: 100, ghost: 100, ghostT: 0, flash: 0, kx: 0, ky: 0, dying: 0 };
+  let L = [], pend = [], parts = [], texts = [], sparks = [], shadows = [], timers = [];
+  let state = "intro", overlay = "intro", simT = 0, freeze = 0, shake = 0, impact = 0, lastImpact = -9;
   let turn = 0, T = null, pat = null, nextKey = null, tele = false;
   let combo = 0, lastStrike = -9, turnHits = 0, totalHits = 0, bestCombo = 0, penAcc = 0;
-  let jUses = 3, sUses = 2, snap = null;
-  const cracks = Array.from({ length: 10 }, (_, i) => ({ a: (i / 10) * TAU + rnd(-0.3, 0.3), l: rnd(9, 22), b: rnd(-0.7, 0.7) }));
+  let jUses = 3, sUses = 2, snap = null, winStat = "";
 
   const after = (d, fn) => timers.push({ t: d, fn });
   const later = (d, fn, mark) => pend.push({ t: d, max: d, fn, mark });
@@ -260,13 +311,14 @@ body:not(.touch) .touch-only { display: none; }
 
   // ---------- Patterns ----------
   // Each pattern: name, dur, omen (menu text before it), hint (shown while it runs if the journal was read),
-  // page (Caelum's journal lines), start/update. To add a pattern, add an entry and put its key in ORDER.
+  // page (Caelum's journal lines, <b> marks emphasis), start/update. Positions are in the 480x820 logical field; B is the box.
+  // To add a pattern, add an entry and put its key in ORDER.
   const PATTERNS = {
     rain: {
       name: "빛가루", dur: 9,
-      omen: "천사가 날개를 턴다. 빛가루가 흩날리기 시작한다.",
+      omen: "천사가 날개를 턴다. 빛가루가 흩날린다.",
       hint: "빛이 곁을 스쳐 <b>발밑으로 지나간 직후</b>, 그림자가 위로 선다.",
-      page: ["빛가루는 위에서 내린다네.", "곁을 스쳐 발밑으로 떨어지는 그 순간, 자네 그림자는 <span class=\"em\">하늘을 향해</span> 선다네.", "천사가 바로 머리 위에 있을 때를 노리게."],
+      page: ["빛가루는 위에서 내린다네.", "곁을 스쳐 발밑으로 떨어지는 그 순간, 자네 그림자는 <b>하늘을 향해</b> 선다네.", "천사가 바로 머리 위에 있을 때를 노리게."],
       update(T, dt, lvl) {
         T.a = (T.a ?? 0.3) - dt;
         if (T.a > 0) return;
@@ -278,8 +330,8 @@ body:not(.touch) .touch-only { display: none; }
     rise: {
       name: "솟는 빛", dur: 9,
       omen: "발밑의 흰 돌바닥이 희미하게 밝아온다.",
-      hint: "바닥이 밝아지면 <b>천사 아래에서 기다렸다가</b>, 마지막 순간에 한 걸음 비키기.",
-      page: ["바닥이 밝아오거든 그 자리를 떠나지 말게.", "아래에서 솟는 빛만큼 그림자를 <span class=\"em\">곧게 세워주는</span> 것은 없지.", "무섭겠지. 그래도 마지막 순간에, 한 걸음만 비키게."],
+      hint: "바닥이 밝아지면 <b>천사 아래에서 기다렸다가</b> 마지막에 한 걸음 비키기.",
+      page: ["바닥이 밝아오거든 그 자리를 떠나지 말게.", "아래에서 솟는 빛만큼 그림자를 <b>곧게 세워주는</b> 것은 없지.", "무섭겠지. 그래도 마지막 순간에, 한 걸음만 비키게."],
       update(T, dt, lvl) {
         T.a = (T.a ?? 0.4) - dt;
         if (T.a > 0) return;
@@ -291,9 +343,9 @@ body:not(.touch) .touch-only { display: none; }
     },
     lines: {
       name: "빛줄기", dur: 9.5,
-      omen: "천사가 두 팔을 벌린다. 빛이 가느다란 줄로 펴진다.",
-      hint: "아래에서 올라오는 줄에 <b>바짝 붙어 있다가</b> 틈으로 빠져나가기.",
-      page: ["빛이 줄이 되어 밀려오면 먼저 틈을 보게.", "줄은 곧게 오니, 그림자도 곧게 선다네.", "아래에서 올라오는 줄에 <span class=\"em\">바짝 붙어 있게.</span> 지나간 줄도 그림자를 남긴다네."],
+      omen: "천사가 두 팔을 벌린다. 빛이 가는 줄로 펴진다.",
+      hint: "올라오는 줄에 <b>바짝 붙어 있다가</b> 틈으로 빠져나가기.",
+      page: ["빛이 줄이 되어 밀려오면 먼저 틈을 보게.", "줄은 곧게 오니, 그림자도 곧게 선다네.", "아래에서 올라오는 줄에 <b>바짝 붙어 있게.</b> 지나간 줄도 그림자를 남긴다네."],
       update(T, dt, lvl) {
         T.a = (T.a ?? 0.2) - dt;
         if (T.a > 0) return;
@@ -309,8 +361,8 @@ body:not(.touch) .touch-only { display: none; }
     penumbra: {
       name: "반그림자", dur: 10,
       omen: "천사의 가슴에서 커다란 빛 덩이가 떨어져 나온다.",
-      hint: "큰 빛과 천사 사이에 머물면 <b>흐린 그림자</b>가 천사를 조금씩 갉는다.",
-      page: ["큰 빛은 그림자를 흐리게 만들지.", "그러나 흐린 그림자도 그림자라네.", "<span class=\"em\">큰 빛과 천사 사이에</span> 머물게. 오래 버틸수록 천사가 지친다네."],
+      hint: "큰 빛과 천사 사이에 머물면 <b>흐린 그림자</b>가 천사를 갉는다.",
+      page: ["큰 빛은 그림자를 흐리게 만들지.", "그러나 흐린 그림자도 그림자라네.", "<b>큰 빛과 천사 사이에</b> 머물게. 오래 버틸수록 천사가 지친다네."],
       start(T) { T.sun = { k: "sun", t: 0, x: B.x + B.w / 2, y: B.y + B.h * 0.6, age: 0, fade: 0 }; L.push(T.sun); },
       update(T, dt, lvl) {
         const s = T.sun;
@@ -329,7 +381,7 @@ body:not(.touch) .touch-only { display: none; }
       name: "마지막 빛", dur: 11,
       omen: "천사의 빛이 흔들린다. 남은 빛을 모두 쏟아내려 한다.",
       hint: "솟는 빛과 빛가루가 함께 온다. <b>천사 아래</b>를 지켜라.",
-      page: ["여기까지 왔다면 자네도 알겠지.", "무섭겠지. 나도 그랬다네.", "<span class=\"em\">그래도 해낼 수 있다네.</span>"],
+      page: ["여기까지 왔다면 자네도 알겠지.", "무섭겠지. 나도 그랬다네.", "<b>그래도 해낼 수 있다네.</b>"],
       update(T, dt) {
         PATTERNS.rise.update(T.r || (T.r = {}), dt, 1);
         PATTERNS.rain.update(T.q || (T.q = {}), dt, 0);
@@ -340,48 +392,40 @@ body:not(.touch) .touch-only { display: none; }
   const pickNext = () => (A.hp <= 30 ? "final" : ORDER[turn % ORDER.length]);
   const levelFor = () => Math.min(2, Math.floor(turn / ORDER.length));
 
-  // ---------- DOM ----------
-  const hpEl = $("hp"), sayEl = $("say"), menuEl = $("menu"), timerEl = $("timer"), timerFill = $("timerFill");
-  const bossFill = $("bossFill"), bossNum = $("bossNum");
-  const actFight = $("actFight"), actJournal = $("actJournal"), actSky = $("actSky");
-  function buildHp() { hpEl.innerHTML = ""; for (let i = 0; i < PMAX; i++) hpEl.appendChild(document.createElement("i")); refreshHp(); }
-  function refreshHp() { [...hpEl.children].forEach((el, i) => el.classList.toggle("lost", i >= P.hp)); }
-  function refreshBoss() { bossFill.style.width = A.hp + "%"; bossNum.textContent = Math.ceil(A.hp); }
-  function refreshActs() {
-    $("jLeft").textContent = jUses + "장 남음"; $("sLeft").textContent = sUses + "번 남음";
-    actJournal.disabled = jUses <= 0; actSky.disabled = sUses <= 0 || P.hp >= PMAX;
-    if (sUses > 0 && P.hp >= PMAX) $("sLeft").textContent = "숨이 고르다";
+  // ---------- Talk panel ----------
+  const SAY_W = 200;
+  let sayLay = null, sayN = 0, sayTotal = 0, sayStr = "";
+  function setSay(str, instant) {
+    sayStr = str;
+    const paras = str.split("\n");
+    let f = F11, pl = paras.map((p) => wrap(p, SAY_W, F11));
+    if (pl.reduce((n, l) => n + l.length, 0) > 4) { f = F9; pl = paras.map((p) => wrap(p, SAY_W, F9)); }
+    sayLay = { f, paras: pl };
+    sayTotal = pl.reduce((n, l) => n + l.reduce((m, ln) => m + ln.length, 0), 0);
+    sayN = instant ? sayTotal : 0;
+    srEl.textContent = str.replace(/<\/?b>/g, "");
   }
-  let sayFull = "", sayN = 0, sayHtml = false;
-  function say(text) { sayFull = text; sayN = 0; sayHtml = false; sayEl.textContent = ""; }
-  function sayNow(html) { sayFull = ""; sayN = 0; sayHtml = true; sayEl.innerHTML = html; }
-  function panelMode(m) {
-    $("panel").hidden = false;
-    menuEl.hidden = m !== "menu"; timerEl.hidden = m !== "pattern";
-    menuEl.querySelectorAll("button").forEach((b) => (b.disabled = m !== "menu"));
-    if (m === "menu") refreshActs();
-  }
-  function showOverlay(id) { ["intro", "journal", "lose", "win"].forEach((k) => ($(k).hidden = k !== id)); }
+  const say = (s) => setSay(s, false), sayNow = (s) => setSay(s, true);
+  const sayDone = () => sayN >= sayTotal;
 
   // ---------- Flow ----------
+  let wantFocus = null;
+  function showOverlay(id) { overlay = id; wantFocus = { intro: "startBtn", journal: "jClose", lose: "retryBtn", win: "againBtn" }[id] || null; }
   function resetAll() {
-    Object.assign(A, { hp: 100, flash: 0, kx: 0, ky: 0, dying: 0 });
+    Object.assign(A, { hp: 100, ghost: 100, ghostT: 0, flash: 0, kx: 0, ky: 0, dying: 0 });
     P.hp = PMAX; turn = 0; jUses = 3; sUses = 2; totalHits = 0; bestCombo = 0;
-    L = []; pend = []; parts = []; texts = []; timers = []; shadows = [];
-    buildHp(); refreshBoss();
+    L = []; pend = []; parts = []; texts = []; sparks = []; timers = []; shadows = [];
   }
   function begin() {
     audioOn(); resetAll(); showOverlay(null);
-    $("top").hidden = false;
-    openMenu("천사가 고원 위로 내려앉는다. 빛으로 지어진 몸이라 칼은 닿지 않는다.");
+    openMenu("천사가 고원에 내려앉는다.");
   }
   function openMenu(prefix) {
     nextKey = pickNext();
-    state = "menu"; panelMode("menu");
-    $("turnNo").textContent = (turn + 1) + "번째 차례";
+    state = "menu";
     say(prefix + "\n" + PATTERNS[nextKey].omen);
     P.x = B.x + B.w / 2; P.y = B.y + B.h * 0.7; P.inv = 0;
-    setTimeout(() => { if (state === "menu") actFight.focus({ preventScroll: true }); }, 30);
+    wantFocus = "actFight";
   }
   function startPattern(withTele) {
     snap = { hp: P.hp, j: jUses, s: sUses, ahp: A.hp };
@@ -389,61 +433,55 @@ body:not(.touch) .touch-only { display: none; }
     tele = withTele; turnHits = 0; combo = 0; penAcc = 0;
     P.x = B.x + B.w / 2; P.y = B.y + B.h * 0.7; P.inv = 0.6;
     if (pat.start) pat.start(T, T.lvl);
-    state = "pattern"; panelMode("pattern");
+    state = "pattern";
     sayNow(withTele ? pat.hint : "빛을 피하세요. <b>가까이 스치면</b> 그림자가 생겨요.");
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   }
   function fadeAll() { L.forEach((s) => { if (!s.fade) s.fade = 0.35; }); pend = []; }
   function endTurn() {
     state = "turnEnd"; fadeAll(); sfx.turn();
-    sayNow(turnHits > 0 ? "그림자가 천사에게 <b>" + turnHits + "번</b> 닿았다." : "로타는 끝까지 버텨냈다.");
+    const res = turnHits > 0 ? "그림자가 <b>" + turnHits + "번</b> 닿았다." : "로타는 끝까지 버텨냈다.";
+    sayNow(res);
     after(0.7, () => {
-      damageAngel(ENDURE, 0, "빛이 바랬다");
+      damageAngel(ENDURE, "빛이 바랬다");
       if (A.hp <= 0) { victory(); return; }
-      after(0.9, () => {
-        turn++;
-        openMenu((turnHits > 0 ? "그림자가 " + turnHits + "번 닿았다." : "로타는 끝까지 버텨냈다.") + " 천사의 빛이 조금 바랬다.");
-      });
+      after(0.9, () => { turn++; openMenu(res + " 천사의 빛이 조금 바랬다."); });
     });
   }
   function victory() {
-    state = "victory"; fadeAll(); A.dying = 0; $("panel").hidden = true; $("top").hidden = true;
+    state = "victory"; fadeAll(); A.dying = 0;
+    sayNow("천사의 빛이 꺼진다.");
     sfx.turn();
     after(2.8, () => {
       state = "won";
-      $("winStat").textContent = "그림자가 천사에게 닿은 횟수 " + totalHits + "번, 가장 긴 연타 " + bestCombo + "번, " + (turn + 1) + "번째 차례에 끝냈어요.";
-      showOverlay("win"); $("againBtn").focus();
+      winStat = "그림자가 닿은 횟수 " + totalHits + "번, 가장 긴 연타 " + bestCombo + "번. " + (turn + 1) + "번째 차례에 끝냈어요.";
+      showOverlay("win");
     });
   }
   function act(kind) {
-    if (state !== "menu") return;
+    if (state !== "menu" || overlay) return;
     audioOn();
-    if (sayN < sayFull.length) { sayN = sayFull.length; sayEl.textContent = sayFull; }
+    sayN = sayTotal;
     if (kind === "fight") { sfx.select(); startPattern(false); }
-    else if (kind === "journal" && jUses > 0) {
-      jUses--; sfx.page(); state = "journal";
-      const p = PATTERNS[nextKey];
-      $("jTitle").textContent = p.name + "에 관하여";
-      $("jBody").innerHTML = p.page.map((l) => "<p>" + l + "</p>").join("");
-      $("jAside").textContent = "이번 차례 동안 빛이 지나가야 할 자리와 빛의 길이 점선으로 보여요. 남은 장 " + jUses + "장.";
-      showOverlay("journal"); $("jClose").focus();
-    } else if (kind === "sky" && sUses > 0 && P.hp < PMAX) {
-      sUses--; P.hp = Math.min(PMAX, P.hp + 2); refreshHp(); sfx.heal(); state = "sky";
-      panelMode("sky");
-      say("로타는 하늘을 올려다보았다. 카엘룸도 여기서 이렇게 했을까.\n이상하게 마음이 가라앉는다. 숨이 고르게 돌아온다.");
-      after(2.6, () => startPattern(false));
+    else if (kind === "journal" && jUses > 0) { jUses--; sfx.page(); state = "journal"; showOverlay("journal"); }
+    else if (kind === "sky" && sUses > 0 && P.hp < PMAX) {
+      sUses--; P.hp = Math.min(PMAX, P.hp + 2); sfx.heal(); state = "sky";
+      say("로타는 하늘을 올려다본다. 카엘룸도 여기서 이랬을까.\n숨이 고르게 돌아온다.");
+      after(2.8, () => startPattern(false));
     }
   }
-  menuEl.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && !b.disabled) act(b.dataset.act); });
+  const actIds = ["actFight", "actJournal", "actSky"];
+  const actOff = (id) => state !== "menu" || !!overlay || (id === "actJournal" && jUses <= 0) || (id === "actSky" && (sUses <= 0 || P.hp >= PMAX));
+  actIds.forEach((id) => $(id).addEventListener("click", () => { if (!actOff(id)) act($(id).dataset.act); }));
   $("jClose").addEventListener("click", () => { showOverlay(null); startPattern(true); });
   $("startBtn").addEventListener("click", begin);
   $("retryBtn").addEventListener("click", () => {
     showOverlay(null);
-    P.hp = PMAX; A.hp = snap.ahp; jUses = snap.j; sUses = snap.s; refreshHp(); refreshBoss();
+    P.hp = PMAX; A.hp = A.ghost = snap.ahp; jUses = snap.j; sUses = snap.s;
     L = []; pend = [];
     openMenu("로타가 다시 일어선다.");
   });
-  $("againBtn").addEventListener("click", () => { resetAll(); state = "intro"; showOverlay("intro"); $("startBtn").focus(); });
+  $("againBtn").addEventListener("click", () => { resetAll(); state = "intro"; showOverlay("intro"); });
   $("snd").addEventListener("click", () => { muted = !muted; $("snd").textContent = muted ? "소리 켜기" : "소리 끄기"; audioOn(); });
 
   // ---------- Input ----------
@@ -451,33 +489,36 @@ body:not(.touch) .touch-only { display: none; }
   addEventListener("keydown", (e) => {
     keys.add(e.code);
     if (state === "pattern" && ["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+    if (overlay) {
+      if (e.code === "KeyZ") { e.preventDefault(); const id = { intro: "startBtn", journal: "jClose", lose: "retryBtn", win: "againBtn" }[overlay]; $(id).click(); }
+      return;
+    }
     if (state === "menu") {
-      const btns = [actFight, actJournal, actSky].filter((b) => !b.disabled);
-      let i = btns.indexOf(document.activeElement);
+      const ids = actIds.filter((id) => !actOff(id));
+      let i = ids.indexOf(document.activeElement && document.activeElement.id);
       if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD"].includes(e.code)) {
         e.preventDefault();
-        i = i < 0 ? 0 : (i + (e.code === "ArrowLeft" || e.code === "KeyA" ? -1 : 1) + btns.length) % btns.length;
-        btns[i].focus(); sfx.select();
+        i = i < 0 ? 0 : (i + (e.code === "ArrowLeft" || e.code === "KeyA" ? -1 : 1) + ids.length) % ids.length;
+        $(ids[i]).focus(); sfx.select();
       } else if (e.code === "KeyZ") {
         e.preventDefault();
-        if (sayN < sayFull.length) { sayN = sayFull.length; sayEl.textContent = sayFull; }
-        else act((i >= 0 ? btns[i] : actFight).dataset.act);
+        if (!sayDone()) sayN = sayTotal; else act($(i >= 0 ? ids[i] : "actFight").dataset.act);
       }
     }
   });
   addEventListener("keyup", (e) => keys.delete(e.code));
   addEventListener("blur", () => keys.clear());
-  if (matchMedia("(pointer: coarse)").matches) document.body.classList.add("touch");
-  addEventListener("touchstart", () => document.body.classList.add("touch"), { passive: true });
+  let touch = matchMedia("(pointer: coarse)").matches;
+  addEventListener("touchstart", () => { touch = true; }, { passive: true });
   let drag = null;
-  cv.addEventListener("pointerdown", (e) => { drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener("pointermove", (e) => {
+  stageEl.addEventListener("pointerdown", (e) => { if (e.target.closest && e.target.closest("button")) return; drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; if (state === "menu" && !sayDone()) sayN = sayTotal; });
+  addEventListener("pointermove", (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    if (state === "pattern" && freeze <= 0) { P.x += (e.clientX - drag.x) / scale * 1.1; P.y += (e.clientY - drag.y) / scale * 1.1; }
+    if (state === "pattern" && freeze <= 0) { const k = 2 / cssPx * 1.1; P.x += (e.clientX - drag.x) * k; P.y += (e.clientY - drag.y) * k; }
     drag.x = e.clientX; drag.y = e.clientY;
   });
   const endDrag = (e) => { if (drag && e.pointerId === drag.id) drag = null; };
-  cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+  addEventListener("pointerup", endDrag); addEventListener("pointercancel", endDrag);
 
   // ---------- Combat ----------
   function segDist(cx, cy, ax, ay, bx, by) {
@@ -488,13 +529,13 @@ body:not(.touch) .touch-only { display: none; }
   function burst(x, y, n, sp, life, col, size) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * TAU, s = sp * (0.3 + Math.random() * 0.9);
-      parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: life * rnd(0.6, 1), max: life, col, size: size || 3 });
+      parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: life * rnd(0.6, 1), max: life, col, size: size || 2 });
     }
   }
-  function floatText(x, y, txt, size, col) { texts.push({ x, y, txt, size, col, life: 1.1, max: 1.1 }); }
-  function damageAngel(d, s, label) {
-    A.hp = Math.max(0, A.hp - d); refreshBoss();
-    if (label) floatText(A.x, A.y - 58, label + " " + d, 15, "#eef0f3");
+  function floatText(x, y, txt, kind) { texts.push({ x, y, txt, kind, life: 1.1, max: 1.1 }); }
+  function damageAngel(d, label) {
+    A.hp = Math.max(0, A.hp - d); A.ghostT = 0.45;
+    if (label) floatText(A.x, A.y - 86, label + " " + d, "note");
   }
   function strike(s) {
     if (state !== "pattern" || A.hp <= 0) return;
@@ -502,37 +543,38 @@ body:not(.touch) .touch-only { display: none; }
     bestCombo = Math.max(bestCombo, combo); turnHits++; totalHits++;
     const mult = Math.min(2, 1 + 0.15 * (combo - 1));
     const dmg = Math.max(1, Math.round((2 + 7 * s * s) * mult));
-    damageAngel(dmg, s);
+    damageAngel(dmg);
     const big = s > 0.72;
-    freeze = reduceMotion ? 0.03 : 0.05 + 0.1 * s;
-    shake = reduceMotion ? 0 : 3 + 10 * s;
-    inkFlash = big ? 1 : 0.5;
+    freeze = reduceMotion ? 0.03 : 0.06 + 0.1 * s;
+    shake = reduceMotion ? 0 : 2 + 5 * s;
+    if (big && !reduceMotion && simT - lastImpact > 0.6) { impact = 0.05; lastImpact = simT; }
     A.flash = 1;
     const dx = A.x - P.x, dy = A.y - P.y, d = Math.hypot(dx, dy) || 1;
-    A.kx += dx / d * (6 + 14 * s); A.ky += dy / d * (6 + 14 * s);
-    burst(A.x, A.y, 10 + Math.round(16 * s), 220, 0.6, "ink", 4);
-    burst(A.x, A.y, 6 + Math.round(10 * s), 160, 0.5, "gold", 2.5);
-    floatText(A.x + rnd(-22, 22), A.y - 30, String(dmg), big ? 30 : 22, big ? "#2a1d5c" : "#3a2f6e");
-    if (big) floatText(A.x, A.y + 52, "깊게 스쳤다", 14, "#eef0f3");
+    A.kx += dx / d * (8 + 16 * s); A.ky += dy / d * (8 + 16 * s);
+    sparks.push({ x: A.x - dx / d * 24, y: A.y - dy / d * 24, t: 0, big });
+    burst(A.x, A.y, 10 + Math.round(14 * s), 240, 0.6, "ink", 3);
+    burst(A.x, A.y, 5 + Math.round(8 * s), 170, 0.5, "gold", 2);
+    floatText(A.x + rnd(-36, 36), A.y - 84, String(dmg), big ? "big" : "hit");
+    if (big) floatText(A.x, A.y + 84, "깊게 스쳤다", "note");
     sfx.strike(s, combo);
     if (A.hp <= 0) victory();
   }
-  function penTick(s) {
+  function penTick() {
     if (state !== "pattern" || A.hp <= 0) return;
-    damageAngel(1, s); A.flash = Math.max(A.flash, 0.5);
-    burst(A.x + rnd(-14, 14), A.y + rnd(-14, 14), 3, 80, 0.5, "ink", 3);
-    if (!reduceMotion) shake = Math.max(shake, 1.2);
+    damageAngel(1); A.flash = Math.max(A.flash, 0.5);
+    burst(A.x + rnd(-14, 14), A.y + rnd(-14, 14), 3, 90, 0.5, "ink", 2);
+    if (!reduceMotion) shake = Math.max(shake, 1);
     sfx.tick();
     if (A.hp <= 0) victory();
   }
   function hurt() {
     if (P.inv > 0 || state !== "pattern") return;
-    P.hp -= 1; P.inv = 1.2; refreshHp(); combo = 0;
-    shake = reduceMotion ? 0 : 10; freeze = reduceMotion ? 0 : 0.08;
-    burst(P.x, P.y, 18, 170, 0.5, "gold", 3);
+    P.hp -= 1; P.inv = 1.2; combo = 0;
+    shake = reduceMotion ? 0 : 4; freeze = reduceMotion ? 0 : 0.1;
+    burst(P.x, P.y, 14, 170, 0.5, "red", 2);
     L.forEach((b) => { if (b.k === "orb" && !b.fade && Math.hypot(b.x - P.x, b.y - P.y) < 90) b.fade = 0.25; });
     sfx.hurt();
-    if (P.hp <= 0) { state = "down"; fadeAll(); after(0.9, () => { showOverlay("lose"); $("retryBtn").focus(); }); }
+    if (P.hp <= 0) { state = "down"; fadeAll(); sayNow("로타가 쓰러졌다."); after(0.9, () => showOverlay("lose")); }
   }
   function lineNearest(l) {
     const g0 = l.gap - l.gw / 2, g1 = l.gap + l.gw / 2;
@@ -571,7 +613,7 @@ body:not(.touch) .touch-only { display: none; }
           const sc = clamp(1 - (d - 22) / 138, 0, 1), ux = dx / d, uy = dy / d, len = 90 + 430 * sc;
           const al = segDist(A.x, A.y, P.x, P.y, P.x + ux * len, P.y + uy * len) < AHIT + 16;
           shadows.push({ ux, uy, len, s: sc, al, soft: true });
-          if (al) { penAcc += 5 * sc * dt; while (penAcc >= 1) { penAcc -= 1; penTick(sc); } }
+          if (al) { penAcc += 5 * sc * dt; while (penAcc >= 1) { penAcc -= 1; penTick(); } }
         }
         continue;
       }
@@ -594,252 +636,407 @@ body:not(.touch) .touch-only { display: none; }
   }
 
   // ---------- Simulation ----------
-  let introT = 0;
+  let introT = 0, blipN = 0;
   function step(dt) {
     simT += dt;
     A.x = W / 2 + Math.sin(simT * 0.5) * 150 + Math.sin(simT * 1.37) * 18;
-    A.y = 160 + Math.sin(simT * 0.9) * 10;
+    A.y = 150 + Math.sin(simT * 0.9) * 10;
     const k = Math.exp(-dt * 8); A.kx *= k; A.ky *= k;
     if (state === "pattern") {
       movePlayer(dt);
       T.t += dt; pat.update(T, dt, T.lvl);
-      timerFill.style.width = Math.min(100, (T.t / pat.dur) * 100) + "%";
       if (T.t >= pat.dur && state === "pattern") endTurn();
     } else if (state === "intro") {
       introT -= dt; if (introT <= 0) { introT = 0.45; orb(rnd(B.x + 14, B.x + B.w - 14), B.y - 8, rnd(-10, 10), rnd(90, 120), 7); }
     }
     for (let i = pend.length - 1; i >= 0; i--) { const p = pend[i]; p.t -= dt; if (p.t <= 0) { pend.splice(i, 1); p.fn(); } }
     physics(dt);
-    if (state === "victory") { A.dying += dt; if (Math.random() < 0.9) burst(A.x, A.y, 3, 150, 1.2, "gold", 3); }
-    parts = parts.filter((p) => { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.95; p.vy *= 0.95; return p.life > 0; });
-    texts = texts.filter((t) => { t.life -= dt; t.y -= 26 * dt; return t.life > 0; });
+    if (state === "victory") { A.dying += dt; if (Math.random() < 0.8) burst(A.x + rnd(-30, 30), A.y + rnd(-40, 40), 2, 120, 1.1, Math.random() < 0.5 ? "ink" : "gold", 2); }
+    parts = parts.filter((p) => { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.94; p.vy = p.vy * 0.94 + 260 * dt; return p.life > 0; });
+    texts = texts.filter((t) => { t.life -= dt; return t.life > 0; });
+    sparks = sparks.filter((s) => { s.t += dt; return s.t < 0.2; });
   }
 
-  // ---------- Draw ----------
-  let skyGrad = null;
-  function wedge(x, y, ux, uy, len, w0, w1) {
-    const px = -uy, py = ux, ex = x + ux * len, ey = y + uy * len;
-    ctx.beginPath();
-    ctx.moveTo(x + px * w0, y + py * w0); ctx.lineTo(ex + px * w1, ey + py * w1);
-    ctx.lineTo(ex - px * w1, ey - py * w1); ctx.lineTo(x - px * w0, y - py * w0); ctx.closePath();
+  // ---------- Static art ----------
+  const scr = surf(FW, FH), bgS = surf(FW, FH), colS = surf(FW, 140), angS = surf(104, 88);
+  const clouds = [];
+  function vgrad(y0, y1, ca, cb) {
+    for (let y = y0; y < y1; y++) { const lv = Math.round(((y - y0) / (y1 - y0)) * 16); rect(0, y, FW, 1, ca); if (lv > 0) rect(0, y, FW, 1, cb, lv); }
   }
-  function drawSky() {
-    if (!skyGrad) { skyGrad = ctx.createLinearGradient(0, 0, 0, H); skyGrad.addColorStop(0, "#a3b7d6"); skyGrad.addColorStop(0.32, "#7488ad"); skyGrad.addColorStop(0.7, "#4a5a7e"); skyGrad.addColorStop(1, "#2b3653"); }
-    ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "rgba(232,238,248,0.08)";
-    for (let i = 0; i < 7; i++) {
-      const xx = ((i * 173 + simT * (8 + i * 2)) % (W + 300)) - 150, yy = 70 + i * 34;
-      ctx.beginPath(); ctx.ellipse(xx, yy, 120 + i * 10, 14, 0, 0, TAU); ctx.fill();
+  function paintStatic() {
+    const R = mulberry(7);
+    target(bgS);
+    // sky: flat bands with short dithered steps between them
+    rect(0, 0, FW, 34, C.SKY1); vgrad(34, 44, C.SKY1, C.SKY2); rect(0, 44, FW, 24, C.SKY2); vgrad(68, 78, C.SKY2, C.SKY3); rect(0, 78, FW, 14, C.SKY3); vgrad(92, 100, C.SKY3, C.HAZE); rect(0, 100, FW, 6, C.HAZE);
+    // far peaks, faceted like the mountain model
+    const peak = (ax, ay, l, r, m) => { poly([l, 106, ax, ay, m, 106], C.WHITE); poly([ax, ay, r, 106, m, 106], C.MARB1); poly([ax, ay, ax + (r - ax) * 0.45, ay + (106 - ay) * 0.45, m + 3, 106, m, 106], C.MARB2); };
+    peak(58, 66, 24, 98, 62); peak(170, 78, 140, 208, 174); peak(118, 90, 100, 142, 121);
+    // sea of clouds at the horizon
+    for (let x = -4; x < FW + 6; x += 7) disc(x + R() * 4, 105, 3 + R() * 3, C.WHITE);
+    rect(0, 103, FW, 3, C.WHITE);
+    // plateau floor, seen low: seams run to a vanishing point
+    rect(0, 106, FW, 28, C.WHITE);
+    setClip(0, 106, FW, 28);
+    for (let x = -180; x <= 420; x += 30) line(120, 96, x, 134, C.MARB1);
+    [108, 111, 115, 120, 126].forEach((y) => rect(0, y, FW, 1, C.MARB1));
+    noClip();
+    rect(0, 106, FW, 1, C.MARB2);
+    // front of the dais: big marble blocks
+    rect(0, 134, FW, FH - 134, C.MARB1);
+    rect(0, 134, FW, 1, C.WHITE); rect(0, 135, FW, 2, C.MARB2); rect(0, 137, FW, 1, C.MARB3);
+    for (let row = 0, y = 138; y < FH; row++, y += 24) {
+      rect(0, y + 23, FW, 1, C.MARB2); rect(0, y, FW, 1, C.WHITE);
+      for (let x = (row & 1) * 26 - 8; x < FW; x += 52) { rect(x, y, 1, 23, C.MARB2); rect(x + 1, y + 1, 1, 22, C.WHITE); }
     }
-    // broken marble columns of the plateau, standing behind the stage
-    ctx.fillStyle = "rgba(236,232,220,0.13)";
-    const cols = [[18, 210, 30], [432, 236, 30], [-4, 330, 26], [458, 360, 26]];
-    for (const [x, top, w] of cols) {
-      ctx.fillRect(x, top, w, H - top);
-      ctx.fillRect(x - 5, top, w + 10, 8);
-      ctx.beginPath(); ctx.moveTo(x - 5, top); ctx.lineTo(x + w * 0.4, top - 12); ctx.lineTo(x + w * 0.7, top - 4); ctx.lineTo(x + w + 5, top - 9); ctx.lineTo(x + w + 5, top); ctx.fill();
+    // grass in the seam where floor meets the dais
+    for (let i = 0; i < 16; i++) { const x = Math.floor(R() * FW), h = 2 + Math.floor(R() * 3); rect(x, 134 - h, 1, h, C.GRN); px(x + 1, 133, C.GRND); if (R() < 0.5) rect(x - 1, 135 - h, 1, h - 1, C.GRND); }
+    // the stage box: marble frame, shaded floor with the sun pattern of the plateau
+    rect(BX - 5, BY - 5, BW + 10, BH + 12, C.MARB3);
+    rect(BX - 5, BY - 5, BW + 10, BH + 10, C.INK); rect(BX - 4, BY - 4, BW + 8, BH + 8, C.WHITE); rect(BX - 4, BY + BH + 2, BW + 8, 2, C.MARB1); rect(BX - 1, BY - 1, BW + 2, BH + 2, C.INK);
+    rect(BX, BY, BW, BH, C.MARB2);
+    setClip(BX, BY, BW, BH);
+    const fx = BX + BW / 2, fy = BY + BH / 2;
+    for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU + TAU / 32; line(fx + Math.cos(a) * 22, fy + Math.sin(a) * 22, fx + Math.cos(a) * 130, fy + Math.sin(a) * 130, C.MARB1); }
+    [22, 44, 68, 94].forEach((r) => ring(fx, fy, r, C.MARB1));
+    const star = []; for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU - TAU / 4, r = i & 1 ? 6 : 15; star.push(fx + Math.cos(a) * r, fy + Math.sin(a) * r); }
+    disc(fx, fy, 19, C.MARB1); poly(star, C.MARB3); disc(fx, fy, 2, C.MARB1);
+    rect(BX, BY, BW, 1, C.MARB3); rect(BX, BY, 1, BH, C.MARB3);
+    noClip();
+    // columns and the pennant line, kept on their own layer so clouds pass behind them
+    target(colS);
+    const column = (x, top, bottom, broken) => {
+      for (let i = 0; i < 12; i++) {
+        const c = i < 4 ? C.WHITE : i < 9 ? C.MARB1 : C.MARB2, cut = broken ? [0, 3, 2, 6, 5, 9, 8, 4, 3, 7, 6, 2][i] : 0;
+        rect(x - 6 + i, top + cut, 1, bottom - top - cut, c);
+      }
+      rect(x - 3, top + 9, 1, bottom - top - 9, C.MARB1); rect(x + 1, top + 9, 1, bottom - top - 9, C.MARB2);
+      for (let y = bottom - 20; y > top + 10; y -= 19) rect(x - 6, y, 12, 1, C.MARB3);
+      if (!broken) { rect(x - 9, top - 4, 18, 3, C.WHITE); rect(x - 9, top - 2, 18, 1, C.MARB1); rect(x - 7, top - 1, 14, 2, C.MARB1); }
+      rect(x - 8, bottom - 4, 16, 2, C.MARB1); rect(x - 10, bottom - 2, 20, 3, C.WHITE); rect(x - 10, bottom, 20, 1, C.MARB2);
+    };
+    const sag = (t) => 34 + (60 - 34) * t + 16 * 4 * t * (1 - t);
+    for (let x = 14; x <= 226; x++) px(x, Math.round(sag((x - 14) / 212)), C.DEEP);
+    for (let x = 26, i = 0; x < 218; x += 11, i++) { const y = Math.round(sag((x - 14) / 212)) + 1, c = [C.BLUE, C.WHITE, C.SKY2][i % 3]; poly([x - 3, y, x + 4, y, x + 0.5, y + 7], c); }
+    column(13, 36, 124, false); column(227, 58, 124, true);
+    rect(196, 121, 13, 5, C.MARB1); rect(196, 121, 13, 2, C.WHITE); rect(205, 121, 1, 5, C.MARB2);   // a fallen drum
+    outline(colS, C.INK);
+    // clouds: lumps with a flat, shaded underside
+    for (let i = 0; i < 4; i++) {
+      const w = 34 + Math.floor(R() * 26), s = surf(w, 15);
+      target(s);
+      for (let k = 0; k < 6; k++) disc(6 + R() * (w - 12), 11 - R() * 2, 3 + R() * 3.5, C.WHITE);
+      rect(3, 11, w - 6, 3, C.WHITE);
+      for (let x = 0; x < w; x++) for (let y = 14; y >= 0; y--) if (s.d[y * w + x]) { s.d[y * w + x] = C.HAZE; if (y > 0 && s.d[(y - 1) * w + x] && R() < 0.7) s.d[(y - 1) * w + x] = C.HAZE; break; }
+      clouds.push({ s, x: R() * FW, y: 22 + i * 15 + R() * 6, v: 1.5 + R() * 2.5 });
     }
   }
-  function drawBox() {
-    const cx = B.x + B.w / 2, cy = B.y + B.h / 2;
-    ctx.fillStyle = "#5a6a8e"; ctx.fillRect(B.x, B.y, B.w, B.h);
-    ctx.save(); ctx.beginPath(); ctx.rect(B.x, B.y, B.w, B.h); ctx.clip();
-    // the sun pattern laid into the plateau floor
-    ctx.strokeStyle = "rgba(240,236,224,0.1)"; ctx.lineWidth = 1.5;
-    for (let r = 36; r < 260; r += 44) { ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke(); }
-    for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * 36, cy + Math.sin(a) * 36); ctx.lineTo(cx + Math.cos(a) * 300, cy + Math.sin(a) * 300); ctx.stroke(); }
-    const vg = ctx.createRadialGradient(cx, cy, 40, cx, cy, 240);
-    vg.addColorStop(0, "rgba(255,240,210,0.08)"); vg.addColorStop(1, "rgba(20,24,44,0.28)");
-    ctx.fillStyle = vg; ctx.fillRect(B.x, B.y, B.w, B.h);
-    ctx.restore();
-    ctx.strokeStyle = "#e9e3d3"; ctx.lineWidth = 3; ctx.strokeRect(B.x - 1.5, B.y - 1.5, B.w + 3, B.h + 3);
-    ctx.strokeStyle = "rgba(233,227,211,0.3)"; ctx.lineWidth = 1; ctx.strokeRect(B.x - 7, B.y - 7, B.w + 14, B.h + 14);
-    ctx.fillStyle = "#e9e3d3";
-    for (const [x, y] of [[B.x, B.y], [B.x + B.w, B.y], [B.x, B.y + B.h], [B.x + B.w, B.y + B.h]]) { ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4); ctx.fillRect(-5, -5, 10, 10); ctx.restore(); }
-    // sky-blue banner with the sun disc, the same mark as the village gate
-    ctx.fillStyle = "#e9e3d3"; ctx.fillRect(cx - 14, B.y - 34, 28, 3);
-    ctx.fillStyle = "#3f6fb5"; ctx.beginPath(); ctx.moveTo(cx - 11, B.y - 31); ctx.lineTo(cx + 11, B.y - 31); ctx.lineTo(cx + 11, B.y - 9); ctx.lineTo(cx, B.y - 15); ctx.lineTo(cx - 11, B.y - 9); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#f1c869"; ctx.beginPath(); ctx.arc(cx, B.y - 22, 5, 0, TAU); ctx.fill();
+
+  // ---------- The angel: flat facets, like folded marble. Facets turn to ink as its light fades. ----------
+  const AO = { x: 52, y: 48 };
+  function angelFacets(pose) {
+    const f = [], add = (p, c) => f.push({ p, c });
+    const dv = [-7, 0, 8, 0][pose];
+    const blade = (jx, jy, deg, len, wd, cu, cl) => {
+      const a = (deg + dv) * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), ux = dy, uy = -dx;
+      const U = [jx + dx * len * 0.5 + ux * wd, jy + dy * len * 0.5 + uy * wd], D = [jx + dx * len * 0.42 - ux * wd * 0.6, jy + dy * len * 0.42 - uy * wd * 0.6], Tp = [jx + dx * len, jy + dy * len];
+      for (const m of [1, -1]) { add([m * jx, jy, m * U[0], U[1], m * Tp[0], Tp[1]], cu); add([m * jx, jy, m * Tp[0], Tp[1], m * D[0], D[1]], cl); }
+    };
+    // wings first, lowest feather first
+    blade(5, 3, 58, 17, 4, C.MARB1, C.MARB3); blade(5, 1, 30, 23, 4, C.MARB1, C.MARB2);
+    blade(6, -9, 10, 25, 5, C.WHITE, C.MARB2); blade(6, -10, -13, 35, 6, C.WHITE, C.MARB2); blade(6, -11, -35, 39, 6, C.WHITE, C.MARB2); blade(6, -12, -58, 32, 5, C.WHITE, C.MARB2);
+    // robe, a long kite that ends in a point
+    add([-10, -12, 0, -9, 0, 31, -7, 9], C.WHITE); add([10, -12, 0, -9, 0, 31, 7, 9], C.MARB1); add([0, -9, 5, 9, 0, 31], C.MARB2);
+    add([-10, -12, 0, -17, 0, -9], C.MARB1); add([10, -12, 0, -17, 0, -9], C.MARB2);
+    // head, no face
+    add([0, -29, -5, -26, -5, -20, 0, -16], C.WHITE); add([0, -29, 5, -26, 5, -20, 0, -16], C.MARB2);
+    return f;
   }
+  const ANGEL = [0, 1, 2, 3].map(angelFacets);
+  const darkOrder = (() => { const n = ANGEL[0].length, o = Array.from({ length: n }, (_, i) => i), R = mulberry(31); for (let i = n - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } const rank = new Array(n); o.forEach((v, i) => (rank[v] = i)); return rank; })();
   function drawAngel() {
     let k = 1;
     if (state === "victory") k = Math.max(0, 1 - A.dying / 2.6);
-    if (state === "won") k = 0;
-    if (k <= 0) return;
-    const x = A.x + A.kx, y = A.y + A.ky, t = simT;
-    ctx.globalCompositeOperation = "lighter";
-    ctx.globalAlpha = 0.85 * k; ctx.drawImage(glowSpr, x - 260, y - 260, 520, 520);
-    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
-    ctx.save(); ctx.translate(x, y); ctx.scale(1.3 * k, 1.3 * k);
-    const flap = Math.sin(t * 3.2) * 0.22;
-    ctx.fillStyle = "rgba(255,252,240,0.92)";
-    for (const side of [-1, 1]) {
-      ctx.save(); ctx.scale(side, 1); ctx.rotate(-flap);
-      ctx.beginPath(); ctx.moveTo(6, -4); ctx.lineTo(60, -28); ctx.lineTo(52, 0); ctx.lineTo(30, 14); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(8, 4); ctx.lineTo(46, 8); ctx.lineTo(24, 20); ctx.closePath(); ctx.fill();
-      ctx.restore();
-    }
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath(); ctx.moveTo(0, -24); ctx.lineTo(13, 0); ctx.lineTo(0, 26); ctx.lineTo(-13, 0); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = "#ffd98a"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.ellipse(0, -35, 16, 5, Math.sin(t) * 0.2, 0, TAU); ctx.stroke();
-    // ink cracks spread as the angel's light fades
-    const hurtK = 1 - A.hp / 100;
-    if (hurtK > 0.02) {
-      ctx.strokeStyle = "rgba(42,29,92," + (0.25 + 0.6 * hurtK) + ")"; ctx.lineWidth = 1.6;
-      const n = Math.ceil(cracks.length * hurtK);
-      for (let i = 0; i < n; i++) { const c = cracks[i]; ctx.beginPath(); ctx.moveTo(0, 0); const mx = Math.cos(c.a) * c.l * 0.5, my = Math.sin(c.a) * c.l * 0.5; ctx.lineTo(mx, my); ctx.lineTo(mx + Math.cos(c.a + c.b) * c.l * 0.6, my + Math.sin(c.a + c.b) * c.l * 0.6); ctx.stroke(); }
-    }
-    if (A.flash > 0) {
-      ctx.fillStyle = "rgba(42,29,92," + 0.7 * A.flash + ")";
-      ctx.beginPath(); ctx.moveTo(0, -24); ctx.lineTo(13, 0); ctx.lineTo(0, 26); ctx.lineTo(-13, 0); ctx.closePath(); ctx.fill();
-    }
-    ctx.restore();
+    if (state === "won" || k <= 0) return;
+    const pose = Math.floor(simT * 5) % 4, facets = ANGEL[pose];
+    const hurtK = state === "victory" ? 1 : 1 - A.hp / 100, dark = Math.round(hurtK * facets.length * 0.8);
+    target(angS); angS.d.fill(0);
+    facets.forEach((f, i) => poly(f.p.map((v, n) => v + (n & 1 ? AO.y : AO.x)), darkOrder[i] < dark ? C.DEEP : f.c));
+    // the light it carries in its chest
+    const dim = A.hp <= 30 && Math.floor(simT * 8) % 2 === 0;
+    poly([AO.x, AO.y - 8, AO.x + 4, AO.y - 4, AO.x, AO.y + 1, AO.x - 3, AO.y - 4], dim ? C.ORNG : C.SUN); px(AO.x, AO.y - 4, C.SUNC); px(AO.x, AO.y - 5, C.SUNC);
+    // halo
+    const hy = AO.y - 35 + (pose === 2 ? 1 : 0);
+    for (let x = -7; x <= 7; x++) { const y = Math.round(2 * Math.sqrt(1 - (x / 7.4) * (x / 7.4))); px(AO.x + x, hy - y, C.SUNP); px(AO.x + x, hy + y, C.SUN); }
+    outline(angS, C.INK);
+    target(scr);
+    const x = q(A.x + A.kx), y = q(A.y + A.ky);
+    // its shadow on the floor shows that it hovers
+    for (let i = -2; i <= 2; i++) rect(x - 15 + Math.abs(i) * 3, 121 + i, 30 - Math.abs(i) * 6, 1, C.MARB3, 8);
+    const o = {};
+    if (A.flash > 0.45) o.tint = Math.floor(A.flash * 12) % 2 ? C.INK : C.WHITE;
+    if (k < 1) o.lv = Math.max(1, Math.round(k * 16));
+    blit(angS, x - AO.x, y - AO.y, o);
   }
-  function drawShadows() {
-    // the angel's own light: a short shadow pointing away from it
-    const adx = P.x - A.x, ady = P.y - A.y, ad = Math.hypot(adx, ady) || 1;
-    ctx.fillStyle = "rgba(14,12,32,0.3)"; wedge(P.x, P.y, adx / ad, ady / ad, 22, 6, 9); ctx.fill();
-    for (const s of shadows) {
-      const ex = P.x + s.ux * s.len, ey = P.y + s.uy * s.len;
-      const g = ctx.createLinearGradient(P.x, P.y, ex, ey);
-      const a = s.soft ? 0.18 + 0.3 * s.s : 0.32 + 0.5 * s.s;
-      const c0 = s.al ? "rgba(36,22,92," : "rgba(14,12,32,";
-      g.addColorStop(0, c0 + a + ")"); g.addColorStop(0.8, c0 + a * 0.55 + ")"); g.addColorStop(1, c0 + "0)");
-      ctx.fillStyle = g;
-      if (s.soft) { wedge(P.x, P.y, s.ux, s.uy, s.len, 9, 22 + s.len * 0.14); ctx.fill(); wedge(P.x, P.y, s.ux, s.uy, s.len * 0.9, 7, 10 + s.len * 0.06); ctx.fill(); }
-      else { wedge(P.x, P.y, s.ux, s.uy, s.len, 6, 6 + s.len * 0.07); ctx.fill(); }
-      if (s.al) { ctx.strokeStyle = "rgba(190,176,255," + (0.35 + 0.4 * s.s) + ")"; ctx.lineWidth = 1.4; ctx.stroke(); }
-    }
-  }
-  function drawGuides() {
-    // journal: where light must pass for the shadow to reach the angel, and where each light is heading
-    if (state !== "pattern" || !tele) return;
-    const dx = P.x - A.x, dy = P.y - A.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
-    ctx.save();
-    ctx.setLineDash([3, 6]); ctx.lineWidth = 1.2;
-    ctx.strokeStyle = "rgba(190,176,255,0.22)"; ctx.beginPath(); ctx.moveTo(A.x, A.y + 30); ctx.lineTo(P.x, P.y); ctx.stroke();
-    ctx.strokeStyle = "rgba(255,236,190,0.7)"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(P.x + ux * 10, P.y + uy * 10); ctx.lineTo(P.x + ux * 42, P.y + uy * 42); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(255,236,190,0.12)";
-    ctx.beginPath(); ctx.moveTo(P.x, P.y);
-    const a = Math.atan2(uy, ux); ctx.arc(P.x, P.y, 42, a - 0.32, a + 0.32); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.rect(B.x, B.y, B.w, B.h); ctx.clip();
-    ctx.strokeStyle = "rgba(255,236,190,0.22)"; ctx.lineWidth = 1; ctx.setLineDash([2, 5]);
-    for (const s of L) if (s.k === "orb" && !s.fade) { ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + s.vx * 0.6, s.y + s.vy * 0.6); ctx.stroke(); }
-    ctx.restore();
+
+  // ---------- Drawing the fight ----------
+  function wedge(x, y, ux, uy, len, w0, w1) {
+    const nx = -uy, ny = ux, ex = x + ux * len, ey = y + uy * len;
+    return [x + nx * w0, y + ny * w0, ex + nx * w1, ey + ny * w1, ex - nx * w1, ey - ny * w1, x - nx * w0, y - ny * w0];
   }
   function drawMarks() {
+    setClip(BX, BY, BW, BH);
     for (const p of pend) {
       if (!p.mark) continue;
       const k = 1 - p.t / p.max, m = p.mark;
       if (m.k === "rise") {
-        ctx.fillStyle = "rgba(255,236,190," + (0.05 + 0.1 * k) + ")"; ctx.fillRect(m.x - 7, B.y, 14, B.h);
-        ctx.globalCompositeOperation = "lighter";
-        ctx.globalAlpha = 0.35 + 0.6 * k; ctx.drawImage(glowSpr, m.x - 26 - 10 * k, B.y + B.h - 26, 52 + 20 * k, 40);
-        ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+        const x = q(m.x), h = Math.round(3 + 9 * k);
+        rect(x - 3, BY, 7, BH, C.SUNP, 3 + Math.round(4 * k));
+        poly([x - 5, BY + BH, x + 0.5, BY + BH - h, x + 6, BY + BH], C.SUN); poly([x - 2, BY + BH, x + 0.5, BY + BH - h * 0.6, x + 3, BY + BH], C.SUNC);
       } else if (m.k === "gap") {
-        const y = m.up ? B.y + B.h - 3 : B.y + 3, g0 = m.gap - m.gw / 2, g1 = m.gap + m.gw / 2;
-        ctx.fillStyle = "rgba(255,236,190," + (0.2 + 0.5 * k * (0.6 + 0.4 * Math.sin(simT * 20))) + ")";
-        ctx.fillRect(B.x, y - 1.5, g0 - B.x, 3); ctx.fillRect(g1, y - 1.5, B.x + B.w - g1, 3);
+        if (Math.floor(simT * 10) % 2 && k > 0.3) continue;
+        const y = m.up ? BY + BH - 3 : BY + 1, g0 = q(m.gap - m.gw / 2), g1 = q(m.gap + m.gw / 2);
+        rect(BX, y, g0 - BX, 2, C.SUN); rect(g1, y, BX + BW - g1, 2, C.SUN);
       }
     }
+    noClip();
+  }
+  function drawShadows() {
+    const x = q(P.x), y = q(P.y);
+    // the angel's own light: a short shadow pointing away from it
+    const adx = P.x - A.x, ady = P.y - A.y, ad = Math.hypot(adx, ady) || 1;
+    setClip(BX, BY, BW, BH);
+    poly(wedge(x, y, adx / ad, ady / ad, 12, 3, 4), C.MARB3);
+    for (const s of shadows) if (!s.al) {
+      const len = s.len / 2;
+      if (s.soft) poly(wedge(x, y, s.ux, s.uy, len, 5, 11 + len * 0.14), C.DEEP, 3 + Math.round(5 * s.s));
+      else poly(wedge(x, y, s.ux, s.uy, len, 3, 3 + len * 0.07), s.s < 0.3 ? C.MARB3 : C.DEEP, s.s < 0.3 ? 16 : 6 + Math.round(10 * s.s));
+    }
+    // a shadow that is on line with the angel turns solid ink and leaves the box
+    setClip(0, 18, FW, BY + BH - 18);
+    for (const s of shadows) if (s.al) {
+      const len = s.len / 2;
+      if (s.soft) { poly(wedge(x, y, s.ux, s.uy, len, 5, 11 + len * 0.14), C.DEEP, 5 + Math.round(5 * s.s)); poly(wedge(x, y, s.ux, s.uy, len * 0.92, 3, 5 + len * 0.05), C.INK, 8 + Math.round(6 * s.s)); }
+      else poly(wedge(x, y, s.ux, s.uy, len, 3, 3 + len * 0.07), C.INK);
+    }
+    noClip();
+  }
+  function drawGuides() {
+    // journal: where light must pass for the shadow to reach the angel, and where each light is heading
+    if (state !== "pattern" || !tele) return;
+    const x = q(P.x), y = q(P.y), ax = q(A.x), ay = q(A.y);
+    const dx = P.x - A.x, dy = P.y - A.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+    setClip(0, 18, FW, BY + BH - 18);
+    line(ax, ay + 16, x, y, C.DEEP, 6);
+    const a = Math.atan2(uy, ux);
+    for (let t = -0.34; t <= 0.34; t += 0.04) px(Math.round(x + Math.cos(a + t) * 21), Math.round(y + Math.sin(a + t) * 21), C.ORNG);
+    line(x + ux * 6, y + uy * 6, x + ux * 20, y + uy * 20, C.ORNG, 4);
+    setClip(BX, BY, BW, BH);
+    for (const s of L) if (s.k === "orb" && !s.fade) line(q(s.x), q(s.y), q(s.x + s.vx * 0.6), q(s.y + s.vy * 0.6), C.ORNG, 4);
+    noClip();
   }
   function drawLights() {
-    ctx.save(); ctx.beginPath(); ctx.rect(B.x, B.y, B.w, B.h); ctx.clip();
-    ctx.globalCompositeOperation = "lighter";
+    setClip(BX, BY, BW, BH);
+    const tw = Math.floor(simT * 8) % 2;
+    for (const s of L) {   // light spilled on the floor
+      const lv = s.fade ? Math.round(Math.min(1, s.fade * 3) * 5) : 5;
+      if (s.k === "orb") disc(q(s.x), q(s.y), q(s.r) + 3, C.SUNP, lv);
+      else if (s.k === "line") { const g0 = q(s.gap - s.gw / 2), g1 = q(s.gap + s.gw / 2), y = q(s.y); rect(BX, y - 5, g0 - BX, 11, C.SUNP, lv); rect(g1, y - 5, BX + BW - g1, 11, C.SUNP, lv); }
+      else if (s.k === "sun") { const kk = Math.min(1, s.age / 0.6); disc(q(s.x), q(s.y), 30 * kk, C.SUNP, 2); disc(q(s.x), q(s.y), 19 * kk, C.SUNP, 5); }
+    }
     for (const s of L) {
-      const f = s.fade ? Math.min(1, s.fade * 3) : 1;
-      if (s.k === "orb") { ctx.globalAlpha = 0.7 * f; ctx.drawImage(glowSpr, s.x - s.r * 5, s.y - s.r * 5, s.r * 10, s.r * 10); }
-      else if (s.k === "line") {
-        const g0 = s.gap - s.gw / 2, g1 = s.gap + s.gw / 2;
-        ctx.globalAlpha = 0.22 * f; ctx.fillStyle = "#ffe2a8";
-        ctx.fillRect(B.x, s.y - 14, g0 - B.x, 28); ctx.fillRect(g1, s.y - 14, B.x + B.w - g1, 28);
+      const lv = s.fade ? Math.max(2, Math.round(Math.min(1, s.fade * 3) * 16)) : 16;
+      if (s.k === "orb") {
+        const x = q(s.x), y = q(s.y), r = q(s.r);
+        disc(x, y, r, C.ORNG, lv); disc(x, y, r - 1, C.SUN, lv); if (lv >= 16) { rect(x - 1, y - 1, 2, 2, C.SUNC); if (tw) { px(x, y - r - 1, C.SUN); px(x, y + r + 1, C.SUN); px(x - r - 1, y, C.SUN); px(x + r + 1, y, C.SUN); } }
+      } else if (s.k === "line") {
+        const g0 = q(s.gap - s.gw / 2), g1 = q(s.gap + s.gw / 2), y = q(s.y);
+        for (const [a, b] of [[BX, g0], [g1, BX + BW]]) { rect(a, y - 2, b - a, 5, C.ORNG, lv); rect(a, y - 1, b - a, 3, C.SUN, lv); rect(a, y, b - a, 1, C.SUNC, lv); }
+        rect(g0 - 2, y - 4, 3, 9, C.ORNG, lv); rect(g0 - 1, y - 3, 1, 7, C.SUNP, lv); rect(g1, y - 4, 3, 9, C.ORNG, lv); rect(g1 + 1, y - 3, 1, 7, C.SUNP, lv);
       } else if (s.k === "sun") {
-        const k = Math.min(1, s.age / 0.6) * f;
-        ctx.globalAlpha = 0.9 * k; ctx.drawImage(glowSpr, s.x - 170, s.y - 170, 340, 340);
+        const kk = Math.min(1, s.age / 0.6), x = q(s.x), y = q(s.y);
+        for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU + (tw ? TAU / 16 : 0); line(x + Math.cos(a) * 12, y + Math.sin(a) * 12, x + Math.cos(a) * (15 + (i & 1) * 2), y + Math.sin(a) * (15 + (i & 1) * 2), C.ORNG); }
+        disc(x, y, 9 * kk, C.ORNG, lv); disc(x, y, 8 * kk, C.SUN, lv); disc(x, y, 5 * kk, C.SUNP, lv); disc(x, y, 2 * kk, C.SUNC, lv);
       }
     }
-    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
-    for (const s of L) {
-      const f = s.fade ? Math.max(0.05, Math.min(1, s.fade * 3)) : 1;
-      if (s.k === "orb") { const r = s.r * 1.25 * f; ctx.drawImage(coreSpr, s.x - r, s.y - r, r * 2, r * 2); }
-      else if (s.k === "line") {
-        const g0 = s.gap - s.gw / 2, g1 = s.gap + s.gw / 2;
-        ctx.globalAlpha = f; ctx.fillStyle = "#fff6dc";
-        ctx.fillRect(B.x, s.y - 2.5, g0 - B.x, 5); ctx.fillRect(g1, s.y - 2.5, B.x + B.w - g1, 5);
-        ctx.fillStyle = "#ffd98a"; ctx.fillRect(g0 - 3, s.y - 5, 3, 10); ctx.fillRect(g1, s.y - 5, 3, 10);
-        ctx.globalAlpha = 1;
-      } else if (s.k === "sun") {
-        const k = Math.min(1, s.age / 0.6) * f;
-        ctx.globalAlpha = k; ctx.drawImage(coreSpr, s.x - 22, s.y - 22, 44, 44);
-        ctx.strokeStyle = "rgba(255,217,138,0.6)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s.x, s.y, 17 + Math.sin(simT * 6) * 1.5, 0, TAU); ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-    }
-    ctx.restore();
+    noClip();
   }
   function drawRota() {
     if (state === "down" || state === "intro" || state === "won") return;
-    const blink = P.inv > 0 && state === "pattern" && Math.floor(P.inv * 14) % 2 === 0;
-    ctx.save(); ctx.translate(P.x, P.y); ctx.globalAlpha = blink ? 0.35 : 1;
-    ctx.fillStyle = "#191a2c"; ctx.strokeStyle = "rgba(255,240,205,0.85)"; ctx.lineWidth = 1.5;
-    ctx.fillRect(-7, -7, 14, 14); ctx.strokeRect(-7, -7, 14, 14);
-    ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, TAU); ctx.fill();
-    ctx.restore();
-    if (P.focus && state === "pattern") { ctx.strokeStyle = "rgba(255,227,160,0.3)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(P.x, P.y, G, 0, TAU); ctx.stroke(); }
+    const x = q(P.x), y = q(P.y);
+    if (P.focus && state === "pattern") ring(x, y, G / 2, C.DEEP, 4);
+    if (P.inv > 0 && state === "pattern" && !reduceMotion && Math.floor(P.inv * 14) % 2 === 0) return;
+    rect(x - 3, y - 3, 7, 7, C.INK); rect(x - 2, y - 2, 5, 5, C.RED); rect(x - 2, y - 2, 2, 1, C.PINK); px(x - 2, y - 1, C.PINK); rect(x + 2, y, 1, 3, C.REDD); rect(x, y + 2, 2, 1, C.REDD);
+    if (P.focus) px(x, y, C.WHITE);
   }
   function drawFx() {
+    for (const s of sparks) {   // hit spark: white star, ink star, then gone
+      const x = q(s.x), y = q(s.y), ph = s.t < 0.05 ? 0 : s.t < 0.11 ? 1 : 2, R = (s.big ? 22 : 15) * (ph === 2 ? 1.25 : 1), pts = [];
+      for (let i = 0; i < 12; i++) { const a = (i / 12) * TAU + 0.3, r = i & 1 ? R * 0.34 : R * (i % 4 === 0 ? 1 : 0.7); pts.push(x + Math.cos(a) * r, y + Math.sin(a) * r); }
+      if (ph === 0) poly(pts, C.WHITE); else if (ph === 1) poly(pts, C.INK); else poly(pts, C.INK, 5);
+    }
     for (const p of parts) {
-      const a = p.life / p.max;
-      if (p.col === "ink") { ctx.fillStyle = "rgba(42,29,92," + a + ")"; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); }
-      else { ctx.globalCompositeOperation = "lighter"; ctx.fillStyle = "rgba(255,233,184," + a + ")"; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); ctx.globalCompositeOperation = "source-over"; }
+      const c = p.col === "ink" ? C.INK : p.col === "red" ? C.RED : C.SUN, sz = p.life / p.max > 0.4 ? p.size : 1;
+      rect(q(p.x), q(p.y), sz, sz, c);
     }
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
     for (const t of texts) {
-      const a = Math.min(1, t.life / t.max * 2), pop = 1 + Math.max(0, (t.life - t.max + 0.12) / 0.12) * 0.4;
-      ctx.font = "700 " + Math.round(t.size * pop) + "px 'Gowun Batang', serif";
-      ctx.globalAlpha = a;
-      ctx.lineWidth = 4; ctx.strokeStyle = t.col === "#eef0f3" ? "rgba(20,24,44,0.7)" : "rgba(255,246,220,0.85)";
-      ctx.strokeText(t.txt, t.x, t.y); ctx.fillStyle = t.col; ctx.fillText(t.txt, t.x, t.y);
+      const age = t.max - t.life, x = q(t.x), y0 = q(t.y);
+      if (t.kind === "note") { textCO(t.txt, x, y0 - Math.round(age * 6), C.WHITE, C.INK, F9, 1); continue; }
+      // damage numbers jump up and land
+      const hop = Math.round(Math.max(0, Math.sin(Math.min(1, age / 0.4) * Math.PI)) * 9);
+      if (t.life < 0.25 && Math.floor(t.life * 30) % 2) continue;
+      if (t.kind === "big") textCO(t.txt, x, y0 - hop - 8, C.SUN, C.INK, F11, 2); else textCO(t.txt, x, y0 - hop, C.WHITE, C.INK, F11, 1);
     }
-    ctx.globalAlpha = 1;
     if (combo >= 2 && simT - lastStrike < 1.6 && state === "pattern") {
-      const a = Math.min(1, (1.6 - (simT - lastStrike)) * 2);
-      ctx.globalAlpha = a; ctx.font = "700 17px 'Gowun Batang', serif";
-      ctx.lineWidth = 4; ctx.strokeStyle = "rgba(20,24,44,0.75)"; ctx.fillStyle = "#d9d0ff";
-      const txt = "그림자 " + combo + "연타"; ctx.strokeText(txt, A.x, A.y + 74); ctx.fillText(txt, A.x, A.y + 74);
-      ctx.globalAlpha = 1;
+      const fresh = simT - lastStrike < 0.1;
+      textCO("그림자 " + combo + "연타", clamp(q(A.x), 44, FW - 44), q(A.y) + 36 - (fresh ? 2 : 0), fresh ? C.SUN : C.WHITE, C.INK, F11, 1);
     }
   }
+
+  // ---------- Interface ----------
+  const hitEls = {};
+  ["snd", "actFight", "actJournal", "actSky", "startBtn", "jClose", "retryBtn", "againBtn"].forEach((id) => (hitEls[id] = { el: $(id), key: "", on: false }));
+  function place(id, x, y, w, h, off) {
+    const o = hitEls[id], key = x + "," + y + "," + w + "," + h;
+    o.on = true;
+    if (o.key !== key) { o.key = key; Object.assign(o.el.style, { left: (x / FW) * 100 + "%", top: (y / FH) * 100 + "%", width: (w / FW) * 100 + "%", height: (h / FH) * 100 + "%" }); }
+    if (o.el.hidden) o.el.hidden = false;
+    if (o.el.disabled !== !!off) o.el.disabled = !!off;
+  }
+  function endPlace() {
+    for (const id in hitEls) { const o = hitEls[id]; if (!o.on && !o.el.hidden) o.el.hidden = true; o.on = false; }
+    if (wantFocus) { const el = $(wantFocus); if (!el.hidden && !el.disabled) el.focus({ preventScroll: true }); wantFocus = null; }
+  }
+  const focused = (id) => document.activeElement && document.activeElement.id === id;
+  function slab(x, y, w, h, fill, edge, shade) { if (shade) rect(x + 1, y + h, w, 2, shade); rect(x, y, w, h, edge); rect(x + 1, y + 1, w - 2, h - 2, fill); }
+  const ICON = { "#": C.INK, "o": C.MARB3 };
+  const icoOn = spr(["...#.....", "..##..#..", "####...#.", "####.#.#.", "####...#.", "..##..#..", "...#....."], ICON);
+  const icoOff = spr(["...#.....", "..##.#.#.", "####.....", "####..#..", "####.....", "..##.#.#.", "...#....."], ICON);
+  function drawHud() {
+    if (state === "intro" || state === "won") return;
+    // the angel's light
+    slab(6, 4, 208, 13, C.WHITE, C.INK);
+    text("천사", 10, 6, C.INK, F9);
+    const bx = 34, bw = 150;
+    rect(bx, 7, bw + 2, 7, C.INK); rect(bx + 1, 8, bw, 5, C.MARB3);
+    const gw = Math.round(bw * A.ghost / 100), hw = Math.round(bw * A.hp / 100);
+    rect(bx + 1, 8, gw, 5, C.RED); rect(bx + 1, 8, hw, 5, C.SUN); if (hw > 0) { rect(bx + 1, 8, hw, 1, C.SUNP); rect(bx + 1, 12, hw, 1, C.ORNG); }
+    const num = String(Math.ceil(A.hp)); text(num, 210 - textW(num, F9), 6, C.INK, F9);
+    slab(218, 4, 16, 13, focused("snd") ? C.SUNP : C.WHITE, C.INK);
+    blit(muted ? icoOff : icoOn, 222, 7);
+    place("snd", 216, 2, 20, 17);
+    // time left in this turn
+    if (state === "pattern") { const tw = Math.round(BW * (1 - clamp(T.t / pat.dur, 0, 1))); rect(BX - 1, 278, BW + 2, 4, C.INK); rect(BX, 279, BW, 2, C.MARB3); rect(BX, 279, tw, 2, C.BLUE); }
+    // Rota's breath
+    text("로타", 9, 286, C.INK, F9);
+    for (let i = 0; i < PMAX; i++) { const x = 33 + i * 9; if (i < P.hp) { rect(x, 287, 7, 7, C.INK); rect(x + 1, 288, 5, 5, C.RED); rect(x + 1, 288, 2, 1, C.PINK); } else { rect(x, 287, 7, 7, C.MARB3); rect(x + 1, 288, 5, 5, C.MARB1); } }
+    const tn = (turn + 1) + "번째 차례"; text(tn, 231 - textW(tn, F9), 286, C.DEEP, F9);
+    // talk panel
+    slab(8, 298, 224, 61, C.WHITE, C.INK, C.MARB3);
+    if (sayLay) {
+      let y = 303, left = Math.floor(sayN);
+      for (const lines of sayLay.paras) {
+        if (left <= 0) break;
+        text("*", 14, y + (sayLay.f === F11 ? 1 : 0), C.MARB3, sayLay.f);
+        left -= drawLines(lines, 24, y, sayLay.f, sayLay.f.pitch, C.INK, C.BLUE, left);
+        y += lines.length * sayLay.f.pitch;
+      }
+    }
+    // three actions
+    const acts = [["actFight", "맞선다", "빛 속으로"], ["actJournal", "일지 펴기", jUses + "장 남음"], ["actSky", "하늘을 본다", sUses > 0 && P.hp >= PMAX ? "숨이 고르다" : sUses + "번 남음"]];
+    acts.forEach(([id, label, sub], i) => {
+      const x = 8 + i * 77, y = 363, w = 70, h = 31, off = actOff(id), sel = !off && focused(id);
+      slab(x, y, w, h, sel ? C.INK : off ? C.MARB1 : C.WHITE, off ? C.MARB3 : C.INK, off ? null : C.MARB3);
+      const f = textW(label, F11) <= w - 6 ? F11 : F9;
+      textC(label, x + w / 2, y + 5, sel ? C.WHITE : off ? C.MARB3 : C.INK, f);
+      textC(sub, x + w / 2, y + 19, sel ? C.SUNP : off ? C.MARB3 : C.BLUE, F9);
+      if (sel) { rect(x + 3, y + 3, 5, 5, C.RED); px(x + 3, y + 3, C.PINK); }
+      place(id, x, y, w, h + 2, off);
+    });
+    if (!touch) textC(state === "pattern" ? "방향키 이동   Shift 천천히" : state === "menu" ? "←→ 고르기   Z 정하기" : "", FW / 2, 398, C.MARB3, F9);
+  }
+  const THEME = {
+    stone: { bg: C.WHITE, edge: C.INK, fg: C.INK, hl: C.BLUE, sub: C.DEEP, eye: C.BLUE, rule: 0, btn: C.INK, btnFg: C.WHITE },
+    paper: { bg: C.PAPER, edge: C.BROWN, fg: C.BROWN, hl: C.REDD, sub: C.BROWN2, eye: C.BROWN2, rule: C.PAPER2, btn: C.BROWN, btnFg: C.PAPER },
+  };
+  function overlaySpec() {
+    if (overlay === "intro") return { th: "stone", eye: "셋째 날 · 천사의 고원", title: "천사가 내려온다", btn: ["startBtn", "일지를 덮고 일어선다"],
+      rules: ["상자 안에서 <b>빛을 피하세요.</b> 맞는 곳은 로타 한가운데뿐이에요.", "빛이 스치면 로타의 그림자가 반대쪽으로 뻗어요. <b>빛, 로타, 천사가 한 줄</b>이 되면 그림자가 천사를 쳐요.", "피하기만 해도 돼요. 한 차례를 버틸 때마다 천사의 빛이 바래요.", "차례 사이에 <b>일지</b>를 펴거나 <b>하늘</b>을 보며 숨을 고를 수 있어요."],
+      keys: touch ? [["화면 끌기", "끈 만큼 움직임"]] : [["방향키 / WASD", "이동, 행동 고르기"], ["Shift", "천천히 움직이기"], ["Z / Enter", "정하기, 글 넘기기"]] };
+    if (overlay === "journal") { const p = PATTERNS[nextKey]; return { th: "paper", eye: "카엘룸의 일지", title: p.name + "에 관하여", body: p.page, aside: "이번 차례에는 빛이 지나가야 할 자리와 빛의 길이 점선으로 보여요. 남은 장 " + jUses + "장.", btn: ["jClose", "일지를 덮고 맞선다"] }; }
+    if (overlay === "lose") return { th: "stone", eye: "로타가 쓰러졌다", title: "빛이 너무 밝았다", body: ["다시 일어나게. 빛이 있는 한 그림자도 있다네."], btn: ["retryBtn", "이 차례부터 다시"] };
+    return { th: "paper", eye: "그날 밤 · 로타는 맹세를 깨고 일지를 넘겼다", title: "괴물에 관하여", body: ["천사를 넘었다면, 남은 것은 정상뿐이네.", "괴물은 천사보다 훨씬 약하니 걱정 말게.", "<b>너도 꼭, 나와 같이 하늘 같은 자가 되길.</b>"], aside: winStat, btn: ["againBtn", "처음부터 다시"] };
+  }
+  function drawOverlay() {
+    if (!overlay) return;
+    rect(0, 0, FW, FH, C.INK, 8);
+    const sp = overlaySpec(), th = THEME[sp.th], x = 12, w = FW - 24, ix = x + 9, iw = w - 18;
+    // measure, then draw
+    const eye = wrap(sp.eye, iw, F9), tsc = textW(sp.title, F11, 2) <= iw ? 2 : 1;
+    const body = (sp.body || []).map((s) => wrap(s, iw - 6, F11)), rules = (sp.rules || []).map((s) => wrap(s, iw - 9, F9));
+    const aside = sp.aside ? wrap(sp.aside, iw, F9) : [];
+    let h = 9 + eye.length * 12 + 2 + 11 * tsc + 9;
+    body.forEach((l) => (h += l.length * 16 + 4)); rules.forEach((l) => (h += l.length * 12 + 5));
+    if (sp.keys) h += 6 + sp.keys.length * 13;
+    if (aside.length) h += 4 + aside.length * 12;
+    h += 8 + 21 + 9;
+    let y = Math.max(4, Math.round((FH - h) / 2));
+    rect(x + 2, y + 3, w, h, C.INK); slab(x, y, w, h, th.bg, th.edge); frame(x + 2, y + 2, w - 4, h - 4, th.sub);
+    y += 9;
+    drawLines(eye, ix, y, F9, 12, th.eye, th.eye); y += eye.length * 12 + 2;
+    text(sp.title, ix, y, th.fg, F11, tsc); y += 11 * tsc + 4;
+    rect(ix, y, iw, 1, th.sub); y += 5;
+    for (const l of body) {
+      if (th.rule) for (let i = 0; i < l.length; i++) rect(ix, y + 13 + i * 16, iw, 1, th.rule);
+      rect(ix, y, 2, l.length * 16 - 4, th.hl);
+      drawLines(l, ix + 6, y, F11, 16, th.fg, th.hl); y += l.length * 16 + 4;
+    }
+    for (const l of rules) { rect(ix, y + 2, 5, 5, C.INK); rect(ix + 1, y + 3, 3, 3, C.RED); drawLines(l, ix + 9, y, F9, 12, th.fg, th.hl); y += l.length * 12 + 5; }
+    if (sp.keys) { rect(ix, y, iw, 1, C.MARB2); y += 6; for (const [k, d] of sp.keys) { text(k, ix, y, th.fg, F9); text(d, ix + 84, y, th.sub, F9); y += 13; } }
+    if (aside.length) { y += 4; drawLines(aside, ix, y, F9, 12, th.sub, th.sub); y += aside.length * 12; }
+    y += 8;
+    const [id, label] = sp.btn, foc = focused(id);
+    rect(ix + 1, y + 21, iw, 2, th.sub); slab(ix, y, iw, 21, th.btn, th.edge);
+    if (foc && Math.floor(performance.now() / 350) % 2) { rect(ix + 5, y + 8, 5, 5, C.RED); px(ix + 5, y + 8, C.PINK); }
+    textC(label, ix + iw / 2, y + 5, th.btnFg, F11);
+    place(id, ix, y, iw, 23);
+  }
+
+  const small = document.createElement("canvas"); small.width = FW; small.height = FH;
+  const sctx = small.getContext("2d"), img = sctx.createImageData(FW, FH), out = new Uint32Array(img.data.buffer);
   function draw() {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = "#141a2c"; ctx.fillRect(0, 0, cv.width, cv.height);
-    const sx = shake ? (Math.random() - 0.5) * shake : 0, sy = shake ? (Math.random() - 0.5) * shake : 0;
-    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (ox + sx * scale), dpr * (oy + sy * scale));
-    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
-    drawSky(); drawAngel(); drawBox(); drawMarks();
+    scr.d.set(bgS.d);
+    target(scr);
+    for (const c of clouds) { setClip(0, 0, FW, 100); blit(c.s, Math.round(((c.x + simT * c.v) % (FW + 70)) - 70), Math.round(c.y)); }
+    noClip();
+    blit(colS, 0, 0);
+    drawMarks();
     if (state === "pattern" || state === "turnEnd") drawShadows();
+    drawAngel(); target(scr);
     drawGuides(); drawLights(); drawRota(); drawFx();
-    if (inkFlash > 0) { ctx.fillStyle = "rgba(30,20,70," + 0.16 * inkFlash + ")"; ctx.fillRect(0, 0, W, H); }
-    ctx.restore();
+    drawHud(); drawOverlay(); endPlace();
+    const p = impact > 0 ? palHit : pal32, d = scr.d;
+    for (let i = 0; i < d.length; i++) out[i] = p[d[i]];
+    sctx.putImageData(img, 0, 0); ctx.drawImage(small, 0, 0, cv.width, cv.height);
+    const sh = shake > 0.5 ? Math.round(shake) : 0;
+    fieldEl.style.transform = sh ? "translate(" + Math.round(rnd(-sh, sh)) * cssPx + "px," + Math.round(rnd(-sh, sh)) * cssPx + "px)" : "";
   }
 
   // ---------- Loop ----------
   let last = 0;
-  function frame(now) {
+  function tick(now) {
     const dt = Math.min(1 / 30, (now - last) / 1000 || 0); last = now;
     for (let i = timers.length - 1; i >= 0; i--) { const t = timers[i]; t.t -= dt; if (t.t <= 0) { timers.splice(i, 1); t.fn(); } }
     if (freeze > 0) freeze -= dt; else step(dt);
-    shake = Math.max(0, shake - dt * 40);
-    inkFlash = Math.max(0, inkFlash - dt * 4);
+    shake = Math.max(0, shake - dt * 22);
+    impact = Math.max(0, impact - dt);
     A.flash = Math.max(0, A.flash - dt * 4);
-    if (!sayHtml && sayN < sayFull.length) { sayN = Math.min(sayFull.length, sayN + dt * 42); sayEl.textContent = sayFull.slice(0, Math.floor(sayN)); }
+    if (A.ghostT > 0) A.ghostT -= dt; else A.ghost = Math.max(A.hp, A.ghost - 40 * dt);
+    if (sayN < sayTotal) { const b = Math.floor(sayN / 3); sayN = Math.min(sayTotal, sayN + dt * 38); if (Math.floor(sayN / 3) !== b && ++blipN) sfx.blip(); }
     draw();
-    requestAnimationFrame(frame);
+    requestAnimationFrame(tick);
   }
-  function boot() { resize(); resetAll(); P.x = B.x + B.w / 2; P.y = B.y + B.h * 0.7; requestAnimationFrame((t) => { last = t; frame(t); }); }
+  function boot() { paintStatic(); resize(); resetAll(); P.x = B.x + B.w / 2; P.y = B.y + B.h * 0.7; showOverlay("intro"); requestAnimationFrame((t) => { last = t; tick(t); }); }
   if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(boot); else boot();
+  window.__game = { get state() { return state; }, A, P, set(o) { if (o.turn !== undefined) turn = o.turn; if (o.ahp !== undefined) A.hp = A.ghost = o.ahp; if (o.php !== undefined) P.hp = o.php; } };
 })();
 </script>
