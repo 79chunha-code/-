@@ -479,7 +479,6 @@ def zone_forest():
 
     Z.h = h
     Z.cameras = {
-        "trail": ((px(44) + 0.8, 44.0, None), (px(74), 74, h(px(74), 74) + 5), 22),
         "bridge": ((px(by - 9), by - 9, None), (bx, by + 8, h(bx, by) + 4), 24),
         "lookout": ((lx - 1.0, ly + 2.5, None), (lx + 6, ly - 400, -105), 28),
         "upper": ((px(176), 176, None), (40, 700, 300), 22),
