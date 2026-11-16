@@ -15,16 +15,17 @@ GRASS = [hexc("#9bcf5a"), hexc("#7fb84c"), hexc("#b4dc6a")]
 FLOWERS = [hexc("#f4f1e8"), hexc("#f2c232"), hexc("#e8554e"), hexc("#d86aa6"), hexc("#8f6fd6"), hexc("#f6f0a0")]
 
 
-def pine(m, x, y, z, h, rng, lod=0):
+def pine(m, x, y, z, h, rng, lod=0, slim=False):
     col = jit(rng.choice(PINE), 0.1, rng)
     n = 5 if lod else 7
     M = T(x, y, z - 0.2) @ R("Z", rng.uniform(0, 360)) @ R("X", rng.uniform(-3, 3))
-    m.cyl(h * 0.035 + 0.05, h * 0.02, h * 0.45, 5, BARK, M=M, cap=False)
+    m.cyl(h * 0.035 + 0.05, h * 0.02, h * (0.55 if slim else 0.45), 5 if lod else 7, BARK, M=M, cap=False)
     tiers = 2 if lod else rng.choice((4, 4, 5))
-    base = h * 0.2
+    base = h * (0.34 if slim else 0.2)
+    girth = 0.16 if slim else 0.24
     for i in range(tiers):
         t = i / tiers
-        r = h * 0.24 * (1 - t * 0.72) * rng.uniform(0.9, 1.1)
+        r = h * girth * (1 - t * 0.72) * rng.uniform(0.9, 1.1)
         z0 = base + (h - base) * t * 0.9
         th = (h - z0) if i == tiers - 1 else (h - base) / tiers * 1.75
         c0 = shade(col, 0.72 + 0.1 * t)

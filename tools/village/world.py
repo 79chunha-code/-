@@ -190,7 +190,7 @@ MROCK, MROCK2, MROCK3 = hexc("#7d8296"), hexc("#655f78"), hexc("#9a9bb0")
 MFOREST, MGRASS = hexc("#4f7f4a"), hexc("#7fa858")
 
 
-def _peak(m, cx, cy, H, Rb, seed, base_z=0.0, rings=46, segs=72, snow_line=0.62, sharp=1.9, ref=(0, 0)):
+def _peak(m, cx, cy, H, Rb, seed, base_z=0.0, rings=46, segs=72, snow_line=0.62, sharp=1.9, ref=(0, 0), rock_from=0.13):
     verts, cols = [], []
     for r in range(rings + 1):
         t = (r / rings) ** 1.5                      # denser rings near the summit
@@ -213,7 +213,7 @@ def _peak(m, cx, cy, H, Rb, seed, base_z=0.0, rings=46, segs=72, snow_line=0.62,
             c = mix(MFOREST, MGRASS, smoothstep(-0.2, 0.5, nb * 6))
             band = 0.5 + 0.5 * math.sin(hrel * 46.0 + nb * 30.0)             # faint strata
             rockc = mix(mix(MROCK, MROCK2, smoothstep(-0.05, 0.08, nb)), MROCK3, band * 0.35)
-            c = mix(c, rockc, smoothstep(0.13, 0.27, hrel + nb))
+            c = mix(c, rockc, smoothstep(rock_from, rock_from + 0.14, hrel + nb))
             snow = smoothstep(snow_line - 0.06, snow_line + 0.05, hrel + nb * 1.6)
             snow *= 1.0 - 0.75 * smoothstep(0.75, 1.1, rid) * (1 - smoothstep(0.8, 0.95, hrel))  # rock ribs poke through
             c = mix(c, mix(SNOW_SH, SNOW, smoothstep(0.9, 1.3, rid + nb * 3)), snow)

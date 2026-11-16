@@ -108,7 +108,8 @@ def bunting(m, a, b, rng, sag=0.9, n=None, size=0.42):
         tipp = (p0 + p1) / 2 + Vector((0, 0, -size))
         c = BUNTING[i % len(BUNTING)]
         m.add([p0, p1, tipp], [(0, 1, 2)], [c, c, shade(c, 0.8)])
-        m.add([p1, p0, tipp], [(0, 1, 2)], [c, c, shade(c, 0.8)])
+        off = (p1 - p0).cross(tipp - p0).normalized() * -0.01      # the back face sits a hair behind, so it never shadows the front
+        m.add([p1 + off, p0 + off, tipp + off], [(0, 1, 2)], [c, c, shade(c, 0.8)])
 
 
 def banner(m, top, n_out, w, h, col, rng, emblem=True):

@@ -142,6 +142,23 @@ def setup_render(scene, samples, res):
     vs.exposure = 0.0
 
 
+def paint_backfaces(mats):
+    """Paint faces seen from behind in magenta (game engines cull them)."""
+    for mat in mats.values():
+        nt = mat.node_tree
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        mixn = nt.nodes.new("ShaderNodeMixShader")
+        em = nt.nodes.new("ShaderNodeEmission")
+        em.inputs["Color"].default_value = (1, 0, 1, 1)
+        em.inputs["Strength"].default_value = 3
+        outn = nt.nodes["Material Output"]
+        bsdf = nt.nodes["Principled BSDF"]
+        nt.links.new(geo.outputs["Backfacing"], mixn.inputs[0])
+        nt.links.new(bsdf.outputs[0], mixn.inputs[1])
+        nt.links.new(em.outputs[0], mixn.inputs[2])
+        nt.links.new(mixn.outputs[0], outn.inputs["Surface"])
+
+
 def main():
     o = args()
     t0 = time.time()
@@ -188,20 +205,8 @@ def main():
                                   export_yup=True, export_apply=True)
         print("EXPORTED", os.path.getsize(os.path.join(OUT, "village.glb")) // 1024, "KB")
 
-    if o["backface"]:                       # paint faces seen from behind in magenta (game engines cull them)
-        for mat in mats.values():
-            nt = mat.node_tree
-            geo = nt.nodes.new("ShaderNodeNewGeometry")
-            mixn = nt.nodes.new("ShaderNodeMixShader")
-            em = nt.nodes.new("ShaderNodeEmission")
-            em.inputs["Color"].default_value = (1, 0, 1, 1)
-            em.inputs["Strength"].default_value = 3
-            outn = nt.nodes["Material Output"]
-            bsdf = nt.nodes["Principled BSDF"]
-            nt.links.new(geo.outputs["Backfacing"], mixn.inputs[0])
-            nt.links.new(bsdf.outputs[0], mixn.inputs[1])
-            nt.links.new(em.outputs[0], mixn.inputs[2])
-            nt.links.new(mixn.outputs[0], outn.inputs["Surface"])
+    if o["backface"]:
+        paint_backfaces(mats)
 
     if o["render"]:
         setup_render(scene, int(o["samples"]), o["res"])
