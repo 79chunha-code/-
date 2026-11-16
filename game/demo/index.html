@@ -1,9 +1,10 @@
 <title>천사의 고원</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
-/* Layout: one 240x410 pixel screen, scaled up with hard pixels. Sky and angel on top, the fixed stage box in the middle,
-   the talk panel and three actions below. Everything is drawn into an indexed framebuffer; the DOM only carries invisible buttons.
-   Palette rule: the world is sky blue and white marble, light is the only yellow, shadow is the only ink navy, Rota is the only red. */
+/* Layout: one 400x225 pixel screen in landscape, scaled up with hard pixels. Sky and angel across the top, the fixed stage box
+   under the angel, the talk panel to its left and three actions to its right. Everything is drawn into an indexed framebuffer;
+   the DOM only carries invisible buttons. Palette rule: deep sky and shaded marble for the world, yellow for light,
+   ink navy for shadow and outlines, red for Rota. */
 :root {
   --letterbox: #161b3d;
   --ink: #161b3d;
@@ -15,13 +16,13 @@
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body { background: var(--letterbox); color: var(--marble); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 #stage {
-  position: fixed; inset: 0; display: grid; place-items: center; box-sizing: border-box;
+  position: fixed; inset: 0; box-sizing: border-box;
   padding-block: env(safe-area-inset-top, 0px) env(safe-area-inset-bottom, 0px);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   touch-action: none;
 }
-#field { position: relative; }
+#field { position: absolute; }
 #c { display: block; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
 /* Invisible hit areas. The canvas draws each button, including its focused look. */
 .hit { position: absolute; margin: 0; padding: 0; border: 0; background: transparent; color: transparent; font-size: 1px; overflow: hidden; cursor: pointer; outline: none; }
@@ -31,11 +32,11 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
 
 <div id="stage">
   <div id="field">
-    <canvas id="c" width="240" height="410" role="img" aria-label="전투 화면"></canvas>
+    <canvas id="c" width="400" height="225" role="img" aria-label="전투 화면"></canvas>
     <button class="hit" id="snd" type="button" hidden>소리 끄기</button>
     <button class="hit" id="actFight" type="button" data-act="fight" hidden>맞선다</button>
     <button class="hit" id="actJournal" type="button" data-act="journal" hidden>일지 펴기</button>
-    <button class="hit" id="actSky" type="button" data-act="sky" hidden>하늘을 본다</button>
+    <button class="hit" id="actSky" type="button" data-act="sky" hidden>하늘 보기</button>
     <button class="hit" id="startBtn" type="button" hidden>일지를 덮고 일어선다</button>
     <button class="hit" id="jClose" type="button" hidden>일지를 덮고 맞선다</button>
     <button class="hit" id="retryBtn" type="button" hidden>이 차례부터 다시</button>
@@ -48,10 +49,13 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
 <script>
 (function () {
   "use strict";
-  // The simulation runs in a 480x820 logical field. The screen is exactly half of that: 240x410 pixels.
-  const W = 480, H = 820, FW = 240, FH = 410, TAU = Math.PI * 2;
-  const B = { x: 60, y: 284, w: 360, h: 258 };   // the stage box (logical)
+  // The simulation runs in an 800x450 logical field. The screen is exactly half of that: 400x225 pixels, landscape.
+  // On screens wider than 16:9 only the scenery grows: FW is the real width and OX the extra columns on each side.
+  const FH = 225, CW = 400, TAU = Math.PI * 2;
+  let FW = CW, OX = 0;
+  const B = { x: 276, y: 196, w: 360, h: 232 };   // the stage box (logical)
   const BX = B.x / 2, BY = B.y / 2, BW = B.w / 2, BH = B.h / 2;
+  const MX = B.x + B.w / 2, AY = 104;            // the angel hovers around this point, above the box
   const G = 62;          // graze radius: light closer than this casts Rota's shadow
   const AHIT = 44;       // shadow must pass within this of the angel
   const PMAX = 6, ENDURE = 8;
@@ -65,50 +69,55 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   // ---------- Palette ----------
   const PAL = [
     "#000000", // 0 transparent in sprites
-    "#161b3d", // 1 INK    outlines, shadows, text
-    "#27306b", // 2 DEEP   weak shadow, secondary text
-    "#3558b8", // 3 BLUE   pennant blue, emphasis
-    "#4f86d9", // 4 SKY1
-    "#6fa3e6", // 5 SKY2
-    "#9cc3f2", // 6 SKY3
-    "#cfe2fa", // 7 HAZE
-    "#f6f8ff", // 8 WHITE  lit marble
-    "#d7dff5", // 9 MARB1
-    "#aebbe3", // 10 MARB2
-    "#7f8dc6", // 11 MARB3
-    "#ffd257", // 12 SUN   light
-    "#fff1b0", // 13 SUNP
-    "#fffbe6", // 14 SUNC
-    "#f0932e", // 15 ORNG  edge of light
-    "#df4b43", // 16 RED   Rota
-    "#ff9a86", // 17 PINK
-    "#4f9e58", // 18 GRN
-    "#2f6b4a", // 19 GRND
-    "#f2e4c0", // 20 PAPER journal
-    "#dcc89a", // 21 PAPER2
-    "#5a3a2a", // 22 BROWN
-    "#96603c", // 23 BROWN2
-    "#9c2a35", // 24 REDD
+    "#12163a", // 1 INK    outlines, shadows, panels
+    "#232c66", // 2 DEEP   weak shadow
+    "#3558b8", // 3 BLUE   pennant blue
+    "#1d3a8a", // 4 SKY0   sky, top
+    "#2b55b0", // 5 SKY1
+    "#4379cf", // 6 SKY2
+    "#6ea2e4", // 7 SKY3
+    "#a9cbf3", // 8 HAZE   horizon
+    "#f6f8ff", // 9 WHITE  lit marble, text
+    "#cdd6f1", // 10 MARB1
+    "#9aa8dc", // 11 MARB2
+    "#6f7dbd", // 12 MARB3
+    "#55629f", // 13 MARB4
+    "#3f4a82", // 14 MARB5
+    "#ffd257", // 15 SUN   light
+    "#fff1b0", // 16 SUNP
+    "#fffbe6", // 17 SUNC
+    "#f0932e", // 18 ORNG  edge of light
+    "#df4b43", // 19 RED   Rota
+    "#ff9a86", // 20 PINK
+    "#3f8f55", // 21 GRN
+    "#255c44", // 22 GRND
+    "#f2e4c0", // 23 PAPER journal
+    "#dcc89a", // 24 PAPER2
+    "#5a3a2a", // 25 BROWN
+    "#96603c", // 26 BROWN2
+    "#9c2a35", // 27 REDD
   ];
-  const C = { INK: 1, DEEP: 2, BLUE: 3, SKY1: 4, SKY2: 5, SKY3: 6, HAZE: 7, WHITE: 8, MARB1: 9, MARB2: 10, MARB3: 11, SUN: 12, SUNP: 13, SUNC: 14, ORNG: 15,
-    RED: 16, PINK: 17, GRN: 18, GRND: 19, PAPER: 20, PAPER2: 21, BROWN: 22, BROWN2: 23, REDD: 24 };
+  const C = {};
+  ["", "INK", "DEEP", "BLUE", "SKY0", "SKY1", "SKY2", "SKY3", "HAZE", "WHITE", "MARB1", "MARB2", "MARB3", "MARB4", "MARB5", "SUN", "SUNP", "SUNC", "ORNG",
+    "RED", "PINK", "GRN", "GRND", "PAPER", "PAPER2", "BROWN", "BROWN2", "REDD"].forEach((n, i) => { if (n) C[n] = i; });
   const rgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
   const abgr = (r, g, b) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
   const pal32 = new Uint32Array(PAL.map((h) => abgr(...rgb(h))));
   // impact frame: the whole screen snaps to two tones for a moment
-  const palHit = new Uint32Array(PAL.map((h) => { const [r, g, b] = rgb(h); return 0.3 * r + 0.59 * g + 0.11 * b > 150 ? abgr(246, 248, 255) : abgr(22, 27, 61); }));
+  const palHit = new Uint32Array(PAL.map((h) => { const [r, g, b] = rgb(h); return 0.3 * r + 0.59 * g + 0.11 * b > 150 ? abgr(246, 248, 255) : abgr(18, 22, 58); }));
 
   // ---------- Pixel surface ----------
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const surf = (w, h) => ({ w, h, d: new Uint8Array(w * h) });
-  let S = null, cx0 = 0, cy0 = 0, cx1 = 0, cy1 = 0;
-  function target(s) { S = s; cx0 = 0; cy0 = 0; cx1 = s.w; cy1 = s.h; }
-  function setClip(x, y, w, h) { cx0 = Math.max(0, x); cy0 = Math.max(0, y); cx1 = Math.min(S.w, x + w); cy1 = Math.min(S.h, y + h); }
+  // OFX shifts every x: the wide surfaces are addressed in content coordinates (0..400), with scenery beyond both ends
+  let S = null, OFX = 0, cx0 = 0, cy0 = 0, cx1 = 0, cy1 = 0;
+  function target(s, ofx) { S = s; OFX = ofx || 0; cx0 = 0; cy0 = 0; cx1 = s.w; cy1 = s.h; }
+  function setClip(x, y, w, h) { x += OFX; cx0 = Math.max(0, x); cy0 = Math.max(0, y); cx1 = Math.min(S.w, x + w); cy1 = Math.min(S.h, y + h); }
   function noClip() { cx0 = 0; cy0 = 0; cx1 = S.w; cy1 = S.h; }
-  function px(x, y, c) { if (x >= cx0 && x < cx1 && y >= cy0 && y < cy1) S.d[y * S.w + x] = c; }
+  function px(x, y, c) { x += OFX; if (x >= cx0 && x < cx1 && y >= cy0 && y < cy1) S.d[y * S.w + x] = c; }
   // lv: dither level 1..16 (16 or undefined = solid)
   function rect(x, y, w, h, c, lv) {
-    x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+    x = Math.round(x) + OFX; y = Math.round(y); w = Math.round(w); h = Math.round(h);
     const x0 = Math.max(cx0, x), y0 = Math.max(cy0, y), x1 = Math.min(cx1, x + w), y1 = Math.min(cy1, y + h), d = S.d, sw = S.w;
     if (lv === undefined || lv >= 16) { for (let yy = y0; yy < y1; yy++) d.fill(c, yy * sw + x0, yy * sw + Math.max(x0, x1)); return; }
     for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) if (BAYER[(yy & 3) * 4 + (xx & 3)] < lv) d[yy * sw + xx] = c;
@@ -157,7 +166,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   }
   // o.tint: draw every opaque pixel in one colour. o.lv: dither level.
   function blit(sp, x, y, o) {
-    x = Math.round(x); y = Math.round(y);
+    x = Math.round(x) + OFX; y = Math.round(y);
     const tint = o && o.tint, lv = o && o.lv, d = S.d, sw = S.w, sd = sp.d, w = sp.w;
     for (let yy = 0; yy < sp.h; yy++) {
       const ty = y + yy; if (ty < cy0 || ty >= cy1) continue;
@@ -248,11 +257,25 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   }
 
   // ---------- Layout ----------
-  let cssPx = 1;   // css pixels per screen pixel
+  let cssPx = 1, rot = false;   // css pixels per screen pixel; rot: a phone held upright shows the game turned on its side
+  let scr = null, bgS = null, colS = null, small = null, sctx = null, img = null, out = null;
+  let touch = matchMedia("(pointer: coarse)").matches;
   function resize() {
     const cs = getComputedStyle(stageEl);
-    const aw = stageEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const ah = stageEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const pl = parseFloat(cs.paddingLeft), pt = parseFloat(cs.paddingTop);
+    let aw = stageEl.clientWidth - pl - parseFloat(cs.paddingRight), ah = stageEl.clientHeight - pt - parseFloat(cs.paddingBottom);
+    const midX = pl + aw / 2, midY = pt + ah / 2;
+    rot = touch && ah > aw * 1.15;
+    if (rot) [aw, ah] = [ah, aw];
+    const fw = clamp(Math.round((FH * aw) / ah / 2) * 2, CW, 520);
+    if (fw !== FW || !scr) {
+      FW = fw; OX = (FW - CW) / 2;
+      scr = surf(FW, FH); bgS = surf(FW, FH); colS = surf(FW, 100);
+      small = document.createElement("canvas"); small.width = FW; small.height = FH;
+      sctx = small.getContext("2d"); img = sctx.createImageData(FW, FH); out = new Uint32Array(img.data.buffer);
+      paintStatic();
+      for (const id in hitEls) hitEls[id].key = "";
+    }
     const dpr = window.devicePixelRatio || 1, s = Math.min(aw / FW, ah / FH), k = Math.floor(s * dpr);
     const whole = k >= 2 && k / (s * dpr) >= 0.85;          // whole device pixels per game pixel when it costs little size
     cssPx = whole ? k / dpr : s;
@@ -260,7 +283,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     const mult = whole ? k : Math.max(2, Math.ceil(s * dpr));
     cv.width = FW * mult; cv.height = FH * mult; ctx.imageSmoothingEnabled = false;
     cv.style.imageRendering = whole ? "pixelated" : "auto";
-    fieldEl.style.width = FW * cssPx + "px"; fieldEl.style.height = FH * cssPx + "px";
+    Object.assign(fieldEl.style, { width: FW * cssPx + "px", height: FH * cssPx + "px", left: midX - (FW * cssPx) / 2 + "px", top: midY - (FH * cssPx) / 2 + "px", transform: rot ? "rotate(90deg)" : "" });
   }
   addEventListener("resize", resize);
 
@@ -298,7 +321,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
 
   // ---------- State ----------
   const P = { x: 0, y: 0, hp: PMAX, inv: 0, focus: false };
-  const A = { x: W / 2, y: 150, hp: 100, ghost: 100, ghostT: 0, flash: 0, kx: 0, ky: 0, dying: 0 };
+  const A = { x: MX, y: AY, hp: 100, ghost: 100, ghostT: 0, flash: 0, kx: 0, ky: 0, dying: 0 };
   let L = [], pend = [], parts = [], texts = [], sparks = [], shadows = [], timers = [];
   let state = "intro", overlay = "intro", simT = 0, freeze = 0, shake = 0, impact = 0, lastImpact = -9;
   let turn = 0, T = null, pat = null, nextKey = null, tele = false;
@@ -393,15 +416,11 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   const levelFor = () => Math.min(2, Math.floor(turn / ORDER.length));
 
   // ---------- Talk panel ----------
-  const SAY_W = 200;
-  let sayLay = null, sayN = 0, sayTotal = 0, sayStr = "";
+  const SAY_W = 107;
+  let sayLay = null, sayN = 0, sayTotal = 0;
   function setSay(str, instant) {
-    sayStr = str;
-    const paras = str.split("\n");
-    let f = F11, pl = paras.map((p) => wrap(p, SAY_W, F11));
-    if (pl.reduce((n, l) => n + l.length, 0) > 4) { f = F9; pl = paras.map((p) => wrap(p, SAY_W, F9)); }
-    sayLay = { f, paras: pl };
-    sayTotal = pl.reduce((n, l) => n + l.reduce((m, ln) => m + ln.length, 0), 0);
+    sayLay = str.split("\n").map((p) => wrap(p, SAY_W, F9));
+    sayTotal = sayLay.reduce((n, l) => n + l.reduce((m, ln) => m + ln.length, 0), 0);
     sayN = instant ? sayTotal : 0;
     srEl.textContent = str.replace(/<\/?b>/g, "");
   }
@@ -466,7 +485,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     else if (kind === "journal" && jUses > 0) { jUses--; sfx.page(); state = "journal"; showOverlay("journal"); }
     else if (kind === "sky" && sUses > 0 && P.hp < PMAX) {
       sUses--; P.hp = Math.min(PMAX, P.hp + 2); sfx.heal(); state = "sky";
-      say("로타는 하늘을 올려다본다. 카엘룸도 여기서 이랬을까.\n숨이 고르게 돌아온다.");
+      say("로타는 하늘을 올려다본다.\n카엘룸도 여기서 이랬을까.\n숨이 고르게 돌아온다.");
       after(2.8, () => startPattern(false));
     }
   }
@@ -496,9 +515,9 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     if (state === "menu") {
       const ids = actIds.filter((id) => !actOff(id));
       let i = ids.indexOf(document.activeElement && document.activeElement.id);
-      if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD"].includes(e.code)) {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyA", "KeyD", "KeyW", "KeyS"].includes(e.code)) {
         e.preventDefault();
-        i = i < 0 ? 0 : (i + (e.code === "ArrowLeft" || e.code === "KeyA" ? -1 : 1) + ids.length) % ids.length;
+        i = i < 0 ? 0 : (i + (["ArrowLeft", "ArrowUp", "KeyA", "KeyW"].includes(e.code) ? -1 : 1) + ids.length) % ids.length;
         $(ids[i]).focus(); sfx.select();
       } else if (e.code === "KeyZ") {
         e.preventDefault();
@@ -508,13 +527,15 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   });
   addEventListener("keyup", (e) => keys.delete(e.code));
   addEventListener("blur", () => keys.clear());
-  let touch = matchMedia("(pointer: coarse)").matches;
-  addEventListener("touchstart", () => { touch = true; }, { passive: true });
+  addEventListener("touchstart", () => { if (!touch) { touch = true; resize(); } }, { passive: true });
   let drag = null;
   stageEl.addEventListener("pointerdown", (e) => { if (e.target.closest && e.target.closest("button")) return; drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; if (state === "menu" && !sayDone()) sayN = sayTotal; });
   addEventListener("pointermove", (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    if (state === "pattern" && freeze <= 0) { const k = 2 / cssPx * 1.1; P.x += (e.clientX - drag.x) * k; P.y += (e.clientY - drag.y) * k; }
+    if (state === "pattern" && freeze <= 0) {
+      const k = 2 / cssPx * 1.1, dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k;
+      if (rot) { P.x += dy; P.y -= dx; } else { P.x += dx; P.y += dy; }
+    }
     drag.x = e.clientX; drag.y = e.clientY;
   });
   const endDrag = (e) => { if (drag && e.pointerId === drag.id) drag = null; };
@@ -535,7 +556,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   function floatText(x, y, txt, kind) { texts.push({ x, y, txt, kind, life: 1.1, max: 1.1 }); }
   function damageAngel(d, label) {
     A.hp = Math.max(0, A.hp - d); A.ghostT = 0.45;
-    if (label) floatText(A.x, A.y - 86, label + " " + d, "note");
+    if (label) floatText(A.x, A.y + 72, label + " " + d, "note");
   }
   function strike(s) {
     if (state !== "pattern" || A.hp <= 0) return;
@@ -554,8 +575,8 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     sparks.push({ x: A.x - dx / d * 24, y: A.y - dy / d * 24, t: 0, big });
     burst(A.x, A.y, 10 + Math.round(14 * s), 240, 0.6, "ink", 3);
     burst(A.x, A.y, 5 + Math.round(8 * s), 170, 0.5, "gold", 2);
-    floatText(A.x + rnd(-36, 36), A.y - 84, String(dmg), big ? "big" : "hit");
-    if (big) floatText(A.x, A.y + 84, "깊게 스쳤다", "note");
+    floatText(A.x + (Math.random() < 0.5 ? -1 : 1) * rnd(56, 86), A.y - 26, String(dmg), big ? "big" : "hit");
+    if (big) floatText(A.x, A.y + 72, "깊게 스쳤다", "note");
     sfx.strike(s, combo);
     if (A.hp <= 0) victory();
   }
@@ -639,8 +660,8 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   let introT = 0, blipN = 0;
   function step(dt) {
     simT += dt;
-    A.x = W / 2 + Math.sin(simT * 0.5) * 150 + Math.sin(simT * 1.37) * 18;
-    A.y = 150 + Math.sin(simT * 0.9) * 10;
+    A.x = MX + Math.sin(simT * 0.5) * 150 + Math.sin(simT * 1.37) * 18;
+    A.y = AY + Math.sin(simT * 0.9) * 10;
     const k = Math.exp(-dt * 8); A.kx *= k; A.ky *= k;
     if (state === "pattern") {
       movePlayer(dt);
@@ -658,76 +679,77 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   }
 
   // ---------- Static art ----------
-  const scr = surf(FW, FH), bgS = surf(FW, FH), colS = surf(FW, 140), angS = surf(104, 88);
-  const clouds = [];
-  function vgrad(y0, y1, ca, cb) {
-    for (let y = y0; y < y1; y++) { const lv = Math.round(((y - y0) / (y1 - y0)) * 16); rect(0, y, FW, 1, ca); if (lv > 0) rect(0, y, FW, 1, cb, lv); }
-  }
+  const angS = surf(104, 88);
+  let clouds = [];
   function paintStatic() {
-    const R = mulberry(7);
-    target(bgS);
-    // sky: flat bands with short dithered steps between them
-    rect(0, 0, FW, 34, C.SKY1); vgrad(34, 44, C.SKY1, C.SKY2); rect(0, 44, FW, 24, C.SKY2); vgrad(68, 78, C.SKY2, C.SKY3); rect(0, 78, FW, 14, C.SKY3); vgrad(92, 100, C.SKY3, C.HAZE); rect(0, 100, FW, 6, C.HAZE);
-    // far peaks, faceted like the mountain model
-    const peak = (ax, ay, l, r, m) => { poly([l, 106, ax, ay, m, 106], C.WHITE); poly([ax, ay, r, 106, m, 106], C.MARB1); poly([ax, ay, ax + (r - ax) * 0.45, ay + (106 - ay) * 0.45, m + 3, 106, m, 106], C.MARB2); };
-    peak(58, 66, 24, 98, 62); peak(170, 78, 140, 208, 174); peak(118, 90, 100, 142, 121);
+    const R = mulberry(7), XL = -OX, HZ = 70;   // HZ: horizon
+    const vgrad = (y0, y1, ca, cb) => { for (let y = y0; y < y1; y++) { rect(XL, y, FW, 1, ca); const lv = Math.round(((y - y0) / (y1 - y0)) * 16); if (lv > 0) rect(XL, y, FW, 1, cb, lv); } };
+    target(bgS, OX);
+    // sky: the deep blue of high altitude, in flat bands with short dithered steps
+    rect(XL, 0, FW, 16, C.SKY0); vgrad(16, 26, C.SKY0, C.SKY1); rect(XL, 26, FW, 12, C.SKY1); vgrad(38, 48, C.SKY1, C.SKY2); rect(XL, 48, FW, 8, C.SKY2); vgrad(56, 64, C.SKY2, C.SKY3); rect(XL, 64, FW, 6, C.SKY3);
+    // far peaks, faceted like the mountain model and washed out by distance
+    const peak = (ax, ay, l, r) => { const m = ax + 4; poly([l, HZ, ax, ay, m, HZ], C.HAZE); poly([ax, ay, r, HZ, m, HZ], C.MARB2); poly([ax, ay, ax + (r - ax) * 0.45, ay + (HZ - ay) * 0.45, m + 4, HZ, m, HZ], C.MARB3); };
+    peak(-58, 44, -100, -8); peak(34, 34, -12, 92); peak(118, 52, 92, 154); peak(318, 42, 268, 368); peak(382, 54, 352, 420); peak(462, 40, 418, 514);
     // sea of clouds at the horizon
-    for (let x = -4; x < FW + 6; x += 7) disc(x + R() * 4, 105, 3 + R() * 3, C.WHITE);
-    rect(0, 103, FW, 3, C.WHITE);
-    // plateau floor, seen low: seams run to a vanishing point
-    rect(0, 106, FW, 28, C.WHITE);
-    setClip(0, 106, FW, 28);
-    for (let x = -180; x <= 420; x += 30) line(120, 96, x, 134, C.MARB1);
-    [108, 111, 115, 120, 126].forEach((y) => rect(0, y, FW, 1, C.MARB1));
+    for (let x = XL - 4; x < CW + OX + 6; x += 7) disc(x + R() * 4, HZ - 1, 2 + R() * 3, C.WHITE);
+    rect(XL, HZ - 2, FW, 2, C.HAZE);
+    // plateau floor in shade, seen low: seams run to a vanishing point
+    rect(XL, HZ, FW, 20, C.MARB2);
+    setClip(XL, HZ, FW, 20);
+    for (let x = -600; x <= 1060; x += 34) line(MX / 2, HZ - 9, x, HZ + 20, C.MARB3);
+    [HZ + 2, HZ + 5, HZ + 9, HZ + 14].forEach((y) => rect(XL, y, FW, 1, C.MARB3));
     noClip();
-    rect(0, 106, FW, 1, C.MARB2);
-    // front of the dais: big marble blocks
-    rect(0, 134, FW, FH - 134, C.MARB1);
-    rect(0, 134, FW, 1, C.WHITE); rect(0, 135, FW, 2, C.MARB2); rect(0, 137, FW, 1, C.MARB3);
-    for (let row = 0, y = 138; y < FH; row++, y += 24) {
-      rect(0, y + 23, FW, 1, C.MARB2); rect(0, y, FW, 1, C.WHITE);
-      for (let x = (row & 1) * 26 - 8; x < FW; x += 52) { rect(x, y, 1, 23, C.MARB2); rect(x + 1, y + 1, 1, 22, C.WHITE); }
+    rect(XL, HZ, FW, 1, C.MARB1);
+    // front of the dais: big marble blocks, in shadow
+    rect(XL, 90, FW, FH - 90, C.MARB4);
+    rect(XL, 90, FW, 1, C.MARB1); rect(XL, 91, FW, 2, C.MARB3); rect(XL, 93, FW, 1, C.MARB5);
+    for (let row = 0, y = 94; y < FH; row++, y += 22) {
+      rect(XL, y + 21, FW, 1, C.MARB5); rect(XL, y, FW, 1, C.MARB3);
+      for (let x = (row & 1) * 28 - 120; x < CW + OX; x += 56) { rect(x, y, 1, 21, C.MARB5); rect(x + 1, y + 1, 1, 20, C.MARB3); }
     }
     // grass in the seam where floor meets the dais
-    for (let i = 0; i < 16; i++) { const x = Math.floor(R() * FW), h = 2 + Math.floor(R() * 3); rect(x, 134 - h, 1, h, C.GRN); px(x + 1, 133, C.GRND); if (R() < 0.5) rect(x - 1, 135 - h, 1, h - 1, C.GRND); }
-    // the stage box: marble frame, shaded floor with the sun pattern of the plateau
-    rect(BX - 5, BY - 5, BW + 10, BH + 12, C.MARB3);
-    rect(BX - 5, BY - 5, BW + 10, BH + 10, C.INK); rect(BX - 4, BY - 4, BW + 8, BH + 8, C.WHITE); rect(BX - 4, BY + BH + 2, BW + 8, 2, C.MARB1); rect(BX - 1, BY - 1, BW + 2, BH + 2, C.INK);
-    rect(BX, BY, BW, BH, C.MARB2);
+    for (let i = 0; i < 26; i++) { const x = XL + Math.floor(R() * FW), h = 2 + Math.floor(R() * 3); rect(x, 90 - h, 1, h, C.GRN); px(x + 1, 89, C.GRND); if (R() < 0.5) rect(x - 1, 91 - h, 1, h - 1, C.GRND); }
+    // the stage box: marble frame, floor with the sun pattern of the plateau
+    rect(BX - 4, BY - 3, BW + 10, BH + 10, C.MARB5);
+    rect(BX - 5, BY - 5, BW + 10, BH + 10, C.INK); rect(BX - 4, BY - 4, BW + 8, BH + 8, C.MARB1);
+    rect(BX - 4, BY - 4, BW + 8, 1, C.WHITE); rect(BX - 4, BY - 4, 1, BH + 8, C.WHITE); rect(BX - 4, BY + BH + 3, BW + 8, 1, C.MARB2); rect(BX + BW + 3, BY - 4, 1, BH + 8, C.MARB2);
+    rect(BX - 1, BY - 1, BW + 2, BH + 2, C.INK);
+    rect(BX, BY, BW, BH, C.MARB3);
     setClip(BX, BY, BW, BH);
     const fx = BX + BW / 2, fy = BY + BH / 2;
-    for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU + TAU / 32; line(fx + Math.cos(a) * 22, fy + Math.sin(a) * 22, fx + Math.cos(a) * 130, fy + Math.sin(a) * 130, C.MARB1); }
-    [22, 44, 68, 94].forEach((r) => ring(fx, fy, r, C.MARB1));
+    for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU + TAU / 32; line(fx + Math.cos(a) * 22, fy + Math.sin(a) * 22, fx + Math.cos(a) * 130, fy + Math.sin(a) * 130, C.MARB2); }
+    [22, 44, 68, 94].forEach((r) => ring(fx, fy, r, C.MARB2));
     const star = []; for (let i = 0; i < 16; i++) { const a = (i / 16) * TAU - TAU / 4, r = i & 1 ? 6 : 15; star.push(fx + Math.cos(a) * r, fy + Math.sin(a) * r); }
-    disc(fx, fy, 19, C.MARB1); poly(star, C.MARB3); disc(fx, fy, 2, C.MARB1);
-    rect(BX, BY, BW, 1, C.MARB3); rect(BX, BY, 1, BH, C.MARB3);
+    disc(fx, fy, 19, C.MARB2); poly(star, C.MARB4); disc(fx, fy, 2, C.MARB2);
+    rect(BX, BY, BW, 1, C.MARB4); rect(BX, BY, 1, BH, C.MARB4);
     noClip();
     // columns and the pennant line, kept on their own layer so clouds pass behind them
-    target(colS);
+    target(colS, OX);
     const column = (x, top, bottom, broken) => {
       for (let i = 0; i < 12; i++) {
-        const c = i < 4 ? C.WHITE : i < 9 ? C.MARB1 : C.MARB2, cut = broken ? [0, 3, 2, 6, 5, 9, 8, 4, 3, 7, 6, 2][i] : 0;
+        const c = i < 2 ? C.WHITE : i < 5 ? C.MARB1 : i < 9 ? C.MARB2 : C.MARB3, cut = broken ? [0, 3, 2, 6, 5, 9, 8, 4, 3, 7, 6, 2][i] : 0;
         rect(x - 6 + i, top + cut, 1, bottom - top - cut, c);
       }
-      rect(x - 3, top + 9, 1, bottom - top - 9, C.MARB1); rect(x + 1, top + 9, 1, bottom - top - 9, C.MARB2);
-      for (let y = bottom - 20; y > top + 10; y -= 19) rect(x - 6, y, 12, 1, C.MARB3);
-      if (!broken) { rect(x - 9, top - 4, 18, 3, C.WHITE); rect(x - 9, top - 2, 18, 1, C.MARB1); rect(x - 7, top - 1, 14, 2, C.MARB1); }
-      rect(x - 8, bottom - 4, 16, 2, C.MARB1); rect(x - 10, bottom - 2, 20, 3, C.WHITE); rect(x - 10, bottom, 20, 1, C.MARB2);
+      rect(x - 2, top + 9, 1, bottom - top - 9, C.MARB2); rect(x + 2, top + 9, 1, bottom - top - 9, C.MARB3);
+      for (let y = bottom - 18; y > top + 10; y -= 17) rect(x - 6, y, 12, 1, C.MARB4);
+      if (!broken) { rect(x - 9, top - 4, 18, 3, C.WHITE); rect(x - 9, top - 2, 18, 1, C.MARB2); rect(x - 7, top - 1, 14, 2, C.MARB2); }
+      rect(x - 8, bottom - 4, 16, 2, C.MARB2); rect(x - 10, bottom - 2, 20, 3, C.MARB1); rect(x - 10, bottom, 20, 1, C.MARB3);
     };
-    const sag = (t) => 34 + (60 - 34) * t + 16 * 4 * t * (1 - t);
-    for (let x = 14; x <= 226; x++) px(x, Math.round(sag((x - 14) / 212)), C.DEEP);
-    for (let x = 26, i = 0; x < 218; x += 11, i++) { const y = Math.round(sag((x - 14) / 212)) + 1, c = [C.BLUE, C.WHITE, C.SKY2][i % 3]; poly([x - 3, y, x + 4, y, x + 0.5, y + 7], c); }
-    column(13, 36, 124, false); column(227, 58, 124, true);
-    rect(196, 121, 13, 5, C.MARB1); rect(196, 121, 13, 2, C.WHITE); rect(205, 121, 1, 5, C.MARB2);   // a fallen drum
+    const cl = XL + 20, cr = CW + OX - 20, sag = (t) => 22 + (40 - 22) * t + 15 * 4 * t * (1 - t);
+    for (let x = cl; x <= cr; x++) px(x, Math.round(sag((x - cl) / (cr - cl))), C.INK);
+    for (let x = cl + 12, i = 0; x < cr - 8; x += 11, i++) { const y = Math.round(sag((x - cl) / (cr - cl))) + 1, c = [C.BLUE, C.WHITE, C.SKY3][i % 3]; poly([x - 3, y, x + 4, y, x + 0.5, y + 7], c); }
+    column(cl, 24, 88, false); column(cr, 40, 88, true);
+    rect(cr - 40, 85, 13, 5, C.MARB2); rect(cr - 40, 85, 13, 2, C.MARB1); rect(cr - 31, 85, 1, 5, C.MARB3);   // a fallen drum
     outline(colS, C.INK);
     // clouds: lumps with a flat, shaded underside
-    for (let i = 0; i < 4; i++) {
-      const w = 34 + Math.floor(R() * 26), s = surf(w, 15);
-      target(s);
+    clouds = [];
+    for (let i = 0; i < 5; i++) {
+      const w = 34 + Math.floor(R() * 30), sp = surf(w, 15);
+      target(sp);
       for (let k = 0; k < 6; k++) disc(6 + R() * (w - 12), 11 - R() * 2, 3 + R() * 3.5, C.WHITE);
       rect(3, 11, w - 6, 3, C.WHITE);
-      for (let x = 0; x < w; x++) for (let y = 14; y >= 0; y--) if (s.d[y * w + x]) { s.d[y * w + x] = C.HAZE; if (y > 0 && s.d[(y - 1) * w + x] && R() < 0.7) s.d[(y - 1) * w + x] = C.HAZE; break; }
-      clouds.push({ s, x: R() * FW, y: 22 + i * 15 + R() * 6, v: 1.5 + R() * 2.5 });
+      for (let x = 0; x < w; x++) for (let y = 14; y >= 0; y--) if (sp.d[y * w + x]) { sp.d[y * w + x] = C.SKY3; if (y > 0 && sp.d[(y - 1) * w + x]) sp.d[(y - 1) * w + x] = C.HAZE; break; }
+      clouds.push({ s: sp, x: R() * 600, y: 4 + i * 10 + R() * 5, v: 1.5 + R() * 2.5 });
     }
   }
 
@@ -768,10 +790,10 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     const hy = AO.y - 35 + (pose === 2 ? 1 : 0);
     for (let x = -7; x <= 7; x++) { const y = Math.round(2 * Math.sqrt(1 - (x / 7.4) * (x / 7.4))); px(AO.x + x, hy - y, C.SUNP); px(AO.x + x, hy + y, C.SUN); }
     outline(angS, C.INK);
-    target(scr);
+    target(scr, OX);
     const x = q(A.x + A.kx), y = q(A.y + A.ky);
     // its shadow on the floor shows that it hovers
-    for (let i = -2; i <= 2; i++) rect(x - 15 + Math.abs(i) * 3, 121 + i, 30 - Math.abs(i) * 6, 1, C.MARB3, 8);
+    for (let i = -2; i <= 2; i++) rect(x - 15 + Math.abs(i) * 3, 83 + i, 30 - Math.abs(i) * 6, 1, C.MARB4, 8);
     const o = {};
     if (A.flash > 0.45) o.tint = Math.floor(A.flash * 12) % 2 ? C.INK : C.WHITE;
     if (k < 1) o.lv = Math.max(1, Math.round(k * 16));
@@ -805,14 +827,14 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     // the angel's own light: a short shadow pointing away from it
     const adx = P.x - A.x, ady = P.y - A.y, ad = Math.hypot(adx, ady) || 1;
     setClip(BX, BY, BW, BH);
-    poly(wedge(x, y, adx / ad, ady / ad, 12, 3, 4), C.MARB3);
+    poly(wedge(x, y, adx / ad, ady / ad, 12, 3, 4), C.MARB5);
     for (const s of shadows) if (!s.al) {
       const len = s.len / 2;
       if (s.soft) poly(wedge(x, y, s.ux, s.uy, len, 5, 11 + len * 0.14), C.DEEP, 3 + Math.round(5 * s.s));
-      else poly(wedge(x, y, s.ux, s.uy, len, 3, 3 + len * 0.07), s.s < 0.3 ? C.MARB3 : C.DEEP, s.s < 0.3 ? 16 : 6 + Math.round(10 * s.s));
+      else poly(wedge(x, y, s.ux, s.uy, len, 3, 3 + len * 0.07), s.s < 0.3 ? C.MARB5 : C.DEEP, s.s < 0.3 ? 16 : 6 + Math.round(10 * s.s));
     }
     // a shadow that is on line with the angel turns solid ink and leaves the box
-    setClip(0, 18, FW, BY + BH - 18);
+    setClip(-OX, 0, FW, BY + BH);
     for (const s of shadows) if (s.al) {
       const len = s.len / 2;
       if (s.soft) { poly(wedge(x, y, s.ux, s.uy, len, 5, 11 + len * 0.14), C.DEEP, 5 + Math.round(5 * s.s)); poly(wedge(x, y, s.ux, s.uy, len * 0.92, 3, 5 + len * 0.05), C.INK, 8 + Math.round(6 * s.s)); }
@@ -825,8 +847,8 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     if (state !== "pattern" || !tele) return;
     const x = q(P.x), y = q(P.y), ax = q(A.x), ay = q(A.y);
     const dx = P.x - A.x, dy = P.y - A.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
-    setClip(0, 18, FW, BY + BH - 18);
-    line(ax, ay + 16, x, y, C.DEEP, 6);
+    setClip(-OX, 0, FW, BY + BH);
+    line(ax, ay + 16, x, y, C.WHITE, 6);
     const a = Math.atan2(uy, ux);
     for (let t = -0.34; t <= 0.34; t += 0.04) px(Math.round(x + Math.cos(a + t) * 21), Math.round(y + Math.sin(a + t) * 21), C.ORNG);
     line(x + ux * 6, y + uy * 6, x + ux * 20, y + uy * 20, C.ORNG, 4);
@@ -863,7 +885,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   function drawRota() {
     if (state === "down" || state === "intro" || state === "won") return;
     const x = q(P.x), y = q(P.y);
-    if (P.focus && state === "pattern") ring(x, y, G / 2, C.DEEP, 4);
+    if (P.focus && state === "pattern") ring(x, y, G / 2, C.WHITE, 4);
     if (P.inv > 0 && state === "pattern" && !reduceMotion && Math.floor(P.inv * 14) % 2 === 0) return;
     rect(x - 3, y - 3, 7, 7, C.INK); rect(x - 2, y - 2, 5, 5, C.RED); rect(x - 2, y - 2, 2, 1, C.PINK); px(x - 2, y - 1, C.PINK); rect(x + 2, y, 1, 3, C.REDD); rect(x, y + 2, 2, 1, C.REDD);
     if (P.focus) px(x, y, C.WHITE);
@@ -888,7 +910,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     }
     if (combo >= 2 && simT - lastStrike < 1.6 && state === "pattern") {
       const fresh = simT - lastStrike < 0.1;
-      textCO("그림자 " + combo + "연타", clamp(q(A.x), 44, FW - 44), q(A.y) + 36 - (fresh ? 2 : 0), fresh ? C.SUN : C.WHITE, C.INK, F11, 1);
+      textCO("그림자 " + combo + "연타", q(A.x), q(A.y) + 34 - (fresh ? 2 : 0), fresh ? C.SUN : C.WHITE, C.INK, F11, 1);
     }
   }
 
@@ -898,7 +920,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
   function place(id, x, y, w, h, off) {
     const o = hitEls[id], key = x + "," + y + "," + w + "," + h;
     o.on = true;
-    if (o.key !== key) { o.key = key; Object.assign(o.el.style, { left: (x / FW) * 100 + "%", top: (y / FH) * 100 + "%", width: (w / FW) * 100 + "%", height: (h / FH) * 100 + "%" }); }
+    if (o.key !== key) { o.key = key; Object.assign(o.el.style, { left: ((x + OX) / FW) * 100 + "%", top: (y / FH) * 100 + "%", width: (w / FW) * 100 + "%", height: (h / FH) * 100 + "%" }); }
     if (o.el.hidden) o.el.hidden = false;
     if (o.el.disabled !== !!off) o.el.disabled = !!off;
   }
@@ -907,118 +929,121 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     if (wantFocus) { const el = $(wantFocus); if (!el.hidden && !el.disabled) el.focus({ preventScroll: true }); wantFocus = null; }
   }
   const focused = (id) => document.activeElement && document.activeElement.id === id;
-  function slab(x, y, w, h, fill, edge, shade) { if (shade) rect(x + 1, y + h, w, 2, shade); rect(x, y, w, h, edge); rect(x + 1, y + 1, w - 2, h - 2, fill); }
-  const ICON = { "#": C.INK, "o": C.MARB3 };
+  // a plate: ink outside, one line of edge colour, then the fill
+  function slab(x, y, w, h, fill, edge) { rect(x - 1, y - 1, w + 2, h + 2, C.INK); rect(x, y, w, h, edge); rect(x + 1, y + 1, w - 2, h - 2, fill); }
+  const soul = (x, y) => { rect(x, y, 5, 5, C.RED); rect(x, y, 2, 1, C.PINK); px(x, y + 1, C.PINK); };
+  const ICON = { "#": C.WHITE };
   const icoOn = spr(["...#.....", "..##..#..", "####...#.", "####.#.#.", "####...#.", "..##..#..", "...#....."], ICON);
   const icoOff = spr(["...#.....", "..##.#.#.", "####.....", "####..#..", "####.....", "..##.#.#.", "...#....."], ICON);
   function drawHud() {
     if (state === "intro" || state === "won") return;
     // the angel's light
-    slab(6, 4, 208, 13, C.WHITE, C.INK);
-    text("천사", 10, 6, C.INK, F9);
-    const bx = 34, bw = 150;
-    rect(bx, 7, bw + 2, 7, C.INK); rect(bx + 1, 8, bw, 5, C.MARB3);
+    slab(6, 5, 128, 13, C.INK, C.WHITE);
+    text("천사", 10, 7, C.WHITE, F9);
+    const bx = 34, bw = 74;
+    rect(bx, 9, bw, 5, C.MARB5);
     const gw = Math.round(bw * A.ghost / 100), hw = Math.round(bw * A.hp / 100);
-    rect(bx + 1, 8, gw, 5, C.RED); rect(bx + 1, 8, hw, 5, C.SUN); if (hw > 0) { rect(bx + 1, 8, hw, 1, C.SUNP); rect(bx + 1, 12, hw, 1, C.ORNG); }
-    const num = String(Math.ceil(A.hp)); text(num, 210 - textW(num, F9), 6, C.INK, F9);
-    slab(218, 4, 16, 13, focused("snd") ? C.SUNP : C.WHITE, C.INK);
-    blit(muted ? icoOff : icoOn, 222, 7);
-    place("snd", 216, 2, 20, 17);
-    // time left in this turn
-    if (state === "pattern") { const tw = Math.round(BW * (1 - clamp(T.t / pat.dur, 0, 1))); rect(BX - 1, 278, BW + 2, 4, C.INK); rect(BX, 279, BW, 2, C.MARB3); rect(BX, 279, tw, 2, C.BLUE); }
-    // Rota's breath
-    text("로타", 9, 286, C.INK, F9);
-    for (let i = 0; i < PMAX; i++) { const x = 33 + i * 9; if (i < P.hp) { rect(x, 287, 7, 7, C.INK); rect(x + 1, 288, 5, 5, C.RED); rect(x + 1, 288, 2, 1, C.PINK); } else { rect(x, 287, 7, 7, C.MARB3); rect(x + 1, 288, 5, 5, C.MARB1); } }
-    const tn = (turn + 1) + "번째 차례"; text(tn, 231 - textW(tn, F9), 286, C.DEEP, F9);
-    // talk panel
-    slab(8, 298, 224, 61, C.WHITE, C.INK, C.MARB3);
+    rect(bx, 9, gw, 5, C.RED); rect(bx, 9, hw, 5, C.SUN); if (hw > 0) { rect(bx, 9, hw, 1, C.SUNP); rect(bx, 13, hw, 1, C.ORNG); }
+    const num = String(Math.ceil(A.hp)); text(num, 130 - textW(num, F9), 7, C.WHITE, F9);
+    slab(CW - 22, 5, 16, 13, C.INK, focused("snd") ? C.SUN : C.WHITE);
+    blit(muted ? icoOff : icoOn, CW - 18, 8);
+    place("snd", CW - 25, 2, 22, 19);
+    // time left in this turn, under the box
+    if (state === "pattern") { const tw = Math.round(BW * (1 - clamp(T.t / pat.dur, 0, 1))); rect(BX - 1, BY + BH + 6, BW + 2, 4, C.INK); rect(BX, BY + BH + 7, BW, 2, C.MARB5); rect(BX, BY + BH + 7, tw, 2, C.SKY3); }
+    // left: Rota's breath and the talk panel
+    slab(5, 95, 124, 124, C.INK, C.WHITE);
+    text("로타", 10, 100, C.WHITE, F9);
+    for (let i = 0; i < PMAX; i++) { const x = 34 + i * 8; if (i < P.hp) { rect(x, 101, 6, 6, C.RED); rect(x, 101, 2, 1, C.PINK); px(x, 102, C.PINK); } else frame(x, 101, 6, 6, C.MARB5); }
+    const tn = "차례 " + (turn + 1); text(tn, 124 - textW(tn, F9), 100, C.MARB2, F9);
+    rect(9, 113, 116, 1, C.MARB5);
     if (sayLay) {
-      let y = 303, left = Math.floor(sayN);
-      for (const lines of sayLay.paras) {
+      let y = 119, left = Math.floor(sayN);
+      for (const lines of sayLay) {
         if (left <= 0) break;
-        text("*", 14, y + (sayLay.f === F11 ? 1 : 0), C.MARB3, sayLay.f);
-        left -= drawLines(lines, 24, y, sayLay.f, sayLay.f.pitch, C.INK, C.BLUE, left);
-        y += lines.length * sayLay.f.pitch;
+        text("*", 10, y, C.MARB3, F9);
+        left -= drawLines(lines, 18, y, F9, 12, C.WHITE, C.SUN, left);
+        y += lines.length * 12 + 2;
       }
     }
-    // three actions
-    const acts = [["actFight", "맞선다", "빛 속으로"], ["actJournal", "일지 펴기", jUses + "장 남음"], ["actSky", "하늘을 본다", sUses > 0 && P.hp >= PMAX ? "숨이 고르다" : sUses + "번 남음"]];
+    // right: three actions
+    const acts = [["actFight", "맞선다", "빛 속으로"], ["actJournal", "일지 펴기", jUses + "장 남음"], ["actSky", "하늘 보기", sUses > 0 && P.hp >= PMAX ? "숨이 고르다" : sUses + "번 남음"]];
     acts.forEach(([id, label, sub], i) => {
-      const x = 8 + i * 77, y = 363, w = 70, h = 31, off = actOff(id), sel = !off && focused(id);
-      slab(x, y, w, h, sel ? C.INK : off ? C.MARB1 : C.WHITE, off ? C.MARB3 : C.INK, off ? null : C.MARB3);
-      const f = textW(label, F11) <= w - 6 ? F11 : F9;
-      textC(label, x + w / 2, y + 5, sel ? C.WHITE : off ? C.MARB3 : C.INK, f);
-      textC(sub, x + w / 2, y + 19, sel ? C.SUNP : off ? C.MARB3 : C.BLUE, F9);
-      if (sel) { rect(x + 3, y + 3, 5, 5, C.RED); px(x + 3, y + 3, C.PINK); }
-      place(id, x, y, w, h + 2, off);
+      const x = 327, y = 95 + i * 42, w = 68, h = 37, off = actOff(id), sel = !off && focused(id);
+      slab(x, y, w, h, C.INK, sel ? C.SUN : off ? C.MARB5 : C.WHITE);
+      textC(label, x + w / 2 + (sel ? 3 : 0), y + 7, sel ? C.SUN : off ? C.MARB4 : C.WHITE, F11);
+      textC(sub, x + w / 2 + (sel ? 3 : 0), y + 22, sel ? C.SUNP : off ? C.MARB5 : C.MARB2, F9);
+      if (sel) soul(x + 5, y + 10);
+      place(id, x - 1, y - 1, w + 2, h + 2, off);
     });
-    if (!touch) textC(state === "pattern" ? "방향키 이동   Shift 천천히" : state === "menu" ? "←→ 고르기   Z 정하기" : "", FW / 2, 398, C.MARB3, F9);
   }
   const THEME = {
-    stone: { bg: C.WHITE, edge: C.INK, fg: C.INK, hl: C.BLUE, sub: C.DEEP, eye: C.BLUE, rule: 0, btn: C.INK, btnFg: C.WHITE },
-    paper: { bg: C.PAPER, edge: C.BROWN, fg: C.BROWN, hl: C.REDD, sub: C.BROWN2, eye: C.BROWN2, rule: C.PAPER2, btn: C.BROWN, btnFg: C.PAPER },
+    stone: { bg: C.INK, edge: C.WHITE, frame: C.MARB5, fg: C.WHITE, hl: C.SUN, sub: C.MARB2, eye: C.SKY3, rule: 0, btn: C.WHITE, btnFg: C.INK },
+    paper: { bg: C.PAPER, edge: C.BROWN, frame: C.BROWN2, fg: C.BROWN, hl: C.REDD, sub: C.BROWN2, eye: C.BROWN2, rule: C.PAPER2, btn: C.BROWN, btnFg: C.PAPER },
   };
   function overlaySpec() {
-    if (overlay === "intro") return { th: "stone", eye: "셋째 날 · 천사의 고원", title: "천사가 내려온다", btn: ["startBtn", "일지를 덮고 일어선다"],
-      rules: ["상자 안에서 <b>빛을 피하세요.</b> 맞는 곳은 로타 한가운데뿐이에요.", "빛이 스치면 로타의 그림자가 반대쪽으로 뻗어요. <b>빛, 로타, 천사가 한 줄</b>이 되면 그림자가 천사를 쳐요.", "피하기만 해도 돼요. 한 차례를 버틸 때마다 천사의 빛이 바래요.", "차례 사이에 <b>일지</b>를 펴거나 <b>하늘</b>을 보며 숨을 고를 수 있어요."],
+    if (overlay === "intro") return { th: "stone", w: 372, eye: "셋째 날 · 천사의 고원", title: "천사가 내려온다", btn: ["startBtn", "일지를 덮고 일어선다"],
+      rules: ["가운데 상자 안에서 <b>빛을 피하세요.</b> 맞는 곳은 로타 한가운데뿐이에요.", "빛이 스치면 로타의 그림자가 반대쪽으로 뻗어요. <b>빛, 로타, 천사가 한 줄</b>이 되면 그림자가 천사를 쳐요.", "피하기만 해도 돼요. 한 차례를 버틸 때마다 천사의 빛이 바래요.", "차례 사이에 <b>일지</b>를 펴거나 <b>하늘</b>을 보며 숨을 고를 수 있어요."],
       keys: touch ? [["화면 끌기", "끈 만큼 움직임"]] : [["방향키 / WASD", "이동, 행동 고르기"], ["Shift", "천천히 움직이기"], ["Z / Enter", "정하기, 글 넘기기"]] };
-    if (overlay === "journal") { const p = PATTERNS[nextKey]; return { th: "paper", eye: "카엘룸의 일지", title: p.name + "에 관하여", body: p.page, aside: "이번 차례에는 빛이 지나가야 할 자리와 빛의 길이 점선으로 보여요. 남은 장 " + jUses + "장.", btn: ["jClose", "일지를 덮고 맞선다"] }; }
-    if (overlay === "lose") return { th: "stone", eye: "로타가 쓰러졌다", title: "빛이 너무 밝았다", body: ["다시 일어나게. 빛이 있는 한 그림자도 있다네."], btn: ["retryBtn", "이 차례부터 다시"] };
-    return { th: "paper", eye: "그날 밤 · 로타는 맹세를 깨고 일지를 넘겼다", title: "괴물에 관하여", body: ["천사를 넘었다면, 남은 것은 정상뿐이네.", "괴물은 천사보다 훨씬 약하니 걱정 말게.", "<b>너도 꼭, 나와 같이 하늘 같은 자가 되길.</b>"], aside: winStat, btn: ["againBtn", "처음부터 다시"] };
+    if (overlay === "journal") { const p = PATTERNS[nextKey]; return { th: "paper", w: 300, eye: "카엘룸의 일지", title: p.name + "에 관하여", body: p.page, aside: "이번 차례에는 빛이 지나가야 할 자리와 빛의 길이 점선으로 보여요. 남은 장 " + jUses + "장.", btn: ["jClose", "일지를 덮고 맞선다"] }; }
+    if (overlay === "lose") return { th: "stone", w: 280, eye: "로타가 쓰러졌다", title: "빛이 너무 밝았다", body: ["다시 일어나게. 빛이 있는 한 그림자도 있다네."], btn: ["retryBtn", "이 차례부터 다시"] };
+    return { th: "paper", w: 300, eye: "그날 밤 · 로타는 맹세를 깨고 일지를 넘겼다", title: "괴물에 관하여", body: ["천사를 넘었다면, 남은 것은 정상뿐이네.", "괴물은 천사보다 훨씬 약하니 걱정 말게.", "<b>너도 꼭, 나와 같이 하늘 같은 자가 되길.</b>"], aside: winStat, btn: ["againBtn", "처음부터 다시"] };
   }
   function drawOverlay() {
     if (!overlay) return;
-    rect(0, 0, FW, FH, C.INK, 8);
-    const sp = overlaySpec(), th = THEME[sp.th], x = 12, w = FW - 24, ix = x + 9, iw = w - 18;
+    rect(-OX, 0, FW, FH, C.INK, 9);
+    const sp = overlaySpec(), th = THEME[sp.th], w = sp.w, x = Math.round((CW - w) / 2), ix = x + 9, iw = w - 18;
     // measure, then draw
     const eye = wrap(sp.eye, iw, F9), tsc = textW(sp.title, F11, 2) <= iw ? 2 : 1;
     const body = (sp.body || []).map((s) => wrap(s, iw - 6, F11)), rules = (sp.rules || []).map((s) => wrap(s, iw - 9, F9));
-    const aside = sp.aside ? wrap(sp.aside, iw, F9) : [];
-    let h = 9 + eye.length * 12 + 2 + 11 * tsc + 9;
-    body.forEach((l) => (h += l.length * 16 + 4)); rules.forEach((l) => (h += l.length * 12 + 5));
-    if (sp.keys) h += 6 + sp.keys.length * 13;
-    if (aside.length) h += 4 + aside.length * 12;
-    h += 8 + 21 + 9;
-    let y = Math.max(4, Math.round((FH - h) / 2));
-    rect(x + 2, y + 3, w, h, C.INK); slab(x, y, w, h, th.bg, th.edge); frame(x + 2, y + 2, w - 4, h - 4, th.sub);
-    y += 9;
-    drawLines(eye, ix, y, F9, 12, th.eye, th.eye); y += eye.length * 12 + 2;
-    text(sp.title, ix, y, th.fg, F11, tsc); y += 11 * tsc + 4;
-    rect(ix, y, iw, 1, th.sub); y += 5;
+    const aside = sp.aside ? wrap(sp.aside, iw, F9) : [], keyRows = sp.keys ? Math.ceil(sp.keys.length / 2) : 0;
+    let h = 7 + eye.length * 12 + 1 + 11 * tsc + 8;
+    body.forEach((l) => (h += l.length * 15 + 3)); rules.forEach((l) => (h += l.length * 12 + 3));
+    if (keyRows) h += 5 + keyRows * 12;
+    if (aside.length) h += 2 + aside.length * 12;
+    h += 6 + 19 + 7;
+    let y = Math.max(2, Math.round((FH - h) / 2));
+    slab(x, y, w, h, th.bg, th.edge); frame(x + 2, y + 2, w - 4, h - 4, th.frame);
+    y += 7;
+    drawLines(eye, ix, y, F9, 12, th.eye, th.eye); y += eye.length * 12 + 1;
+    text(sp.title, ix, y, th.fg, F11, tsc); y += 11 * tsc + 3;
+    rect(ix, y, iw, 1, th.frame); y += 5;
     for (const l of body) {
-      if (th.rule) for (let i = 0; i < l.length; i++) rect(ix, y + 13 + i * 16, iw, 1, th.rule);
-      rect(ix, y, 2, l.length * 16 - 4, th.hl);
-      drawLines(l, ix + 6, y, F11, 16, th.fg, th.hl); y += l.length * 16 + 4;
+      if (th.rule) for (let i = 0; i < l.length; i++) rect(ix, y + 12 + i * 15, iw, 1, th.rule);
+      rect(ix, y, 2, l.length * 15 - 4, th.hl);
+      drawLines(l, ix + 6, y, F11, 15, th.fg, th.hl); y += l.length * 15 + 3;
     }
-    for (const l of rules) { rect(ix, y + 2, 5, 5, C.INK); rect(ix + 1, y + 3, 3, 3, C.RED); drawLines(l, ix + 9, y, F9, 12, th.fg, th.hl); y += l.length * 12 + 5; }
-    if (sp.keys) { rect(ix, y, iw, 1, C.MARB2); y += 6; for (const [k, d] of sp.keys) { text(k, ix, y, th.fg, F9); text(d, ix + 84, y, th.sub, F9); y += 13; } }
-    if (aside.length) { y += 4; drawLines(aside, ix, y, F9, 12, th.sub, th.sub); y += aside.length * 12; }
-    y += 8;
+    for (const l of rules) { soul(ix, y + 2); drawLines(l, ix + 9, y, F9, 12, th.fg, th.hl); y += l.length * 12 + 3; }
+    if (keyRows) {
+      rect(ix, y, iw, 1, th.frame); y += 5;
+      sp.keys.forEach(([k, d], i) => { const kx = ix + (i & 1) * Math.round(iw / 2), ky = y + (i >> 1) * 12; const ex = text(k, kx, ky, th.fg, F9); text(d, ex + 6, ky, th.sub, F9); });
+      y += keyRows * 12;
+    }
+    if (aside.length) { y += 2; drawLines(aside, ix, y, F9, 12, th.sub, th.sub); y += aside.length * 12; }
+    y += 6;
     const [id, label] = sp.btn, foc = focused(id);
-    rect(ix + 1, y + 21, iw, 2, th.sub); slab(ix, y, iw, 21, th.btn, th.edge);
-    if (foc && Math.floor(performance.now() / 350) % 2) { rect(ix + 5, y + 8, 5, 5, C.RED); px(ix + 5, y + 8, C.PINK); }
-    textC(label, ix + iw / 2, y + 5, th.btnFg, F11);
-    place(id, ix, y, iw, 23);
+    slab(ix, y, iw, 19, th.btn, th.edge);
+    textC(label, ix + iw / 2, y + 4, th.btnFg, F11);
+    if (foc && Math.floor(performance.now() / 350) % 2) soul(Math.round(ix + iw / 2 - textW(label, F11) / 2) - 11, y + 7);
+    place(id, ix, y, iw, 20);
   }
 
-  const small = document.createElement("canvas"); small.width = FW; small.height = FH;
-  const sctx = small.getContext("2d"), img = sctx.createImageData(FW, FH), out = new Uint32Array(img.data.buffer);
   function draw() {
     scr.d.set(bgS.d);
-    target(scr);
-    for (const c of clouds) { setClip(0, 0, FW, 100); blit(c.s, Math.round(((c.x + simT * c.v) % (FW + 70)) - 70), Math.round(c.y)); }
+    target(scr, OX);
+    setClip(-OX, 0, FW, 68);
+    for (const c of clouds) blit(c.s, Math.round(((c.x + simT * c.v) % (FW + 70)) - 70 - OX), Math.round(c.y));
     noClip();
-    blit(colS, 0, 0);
+    blit(colS, -OX, 0);
     drawMarks();
     if (state === "pattern" || state === "turnEnd") drawShadows();
-    drawAngel(); target(scr);
+    drawAngel(); target(scr, OX);
     drawGuides(); drawLights(); drawRota(); drawFx();
     drawHud(); drawOverlay(); endPlace();
     const p = impact > 0 ? palHit : pal32, d = scr.d;
     for (let i = 0; i < d.length; i++) out[i] = p[d[i]];
     sctx.putImageData(img, 0, 0); ctx.drawImage(small, 0, 0, cv.width, cv.height);
     const sh = shake > 0.5 ? Math.round(shake) : 0;
-    fieldEl.style.transform = sh ? "translate(" + Math.round(rnd(-sh, sh)) * cssPx + "px," + Math.round(rnd(-sh, sh)) * cssPx + "px)" : "";
+    cv.style.transform = sh ? "translate(" + Math.round(rnd(-sh, sh)) * cssPx + "px," + Math.round(rnd(-sh, sh)) * cssPx + "px)" : "";
   }
 
   // ---------- Loop ----------
@@ -1035,7 +1060,7 @@ body { background: var(--letterbox); color: var(--marble); -webkit-user-select: 
     draw();
     requestAnimationFrame(tick);
   }
-  function boot() { paintStatic(); resize(); resetAll(); P.x = B.x + B.w / 2; P.y = B.y + B.h * 0.7; showOverlay("intro"); requestAnimationFrame((t) => { last = t; tick(t); }); }
+  function boot() { resize(); resetAll(); P.x = B.x + B.w / 2; P.y = B.y + B.h * 0.7; showOverlay("intro"); requestAnimationFrame((t) => { last = t; tick(t); }); }
   if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(boot); else boot();
   window.__game = { get state() { return state; }, A, P, set(o) { if (o.turn !== undefined) turn = o.turn; if (o.ahp !== undefined) A.hp = A.ghost = o.ahp; if (o.php !== undefined) P.hp = o.php; } };
 })();
