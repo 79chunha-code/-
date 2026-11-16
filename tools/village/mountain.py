@@ -479,7 +479,7 @@ def zone_forest():
 
     Z.h = h
     Z.cameras = {
-        "start": ((px(1) - 0.6, 1.0, None), (px(34), 34, h(px(34), 34) + 7), 22),
+        "trail": ((px(44) + 0.8, 44.0, None), (px(74), 74, h(px(74), 74) + 5), 22),
         "bridge": ((px(by - 9), by - 9, None), (bx, by + 8, h(bx, by) + 4), 24),
         "lookout": ((lx - 1.0, ly + 2.5, None), (lx + 6, ly - 400, -105), 28),
         "upper": ((px(176), 176, None), (40, 700, 300), 22),
@@ -611,7 +611,7 @@ def zone_ridge():
     Z.h = h
     Z.cameras = {
         "ridge": ((px(8), 8, None), (px(90), 90, h(px(90), 90) + 9), 22),
-        "camp": ((CAMP[0] + 5.4, CAMP[1] - 4.6, None), (CAMP[0] - 1.5, CAMP[1] + 1, h(*CAMP) + 0.9), 22),
+        "camp": ((CAMP[0] - 6.5, CAMP[1] - 5.5, None), (CAMP[0] + 1.0, CAMP[1] + 1.5, h(*CAMP) + 0.8), 22),
         "sky_rock": ((sx + 7.0, sy - 4.0, None), (sx - 14, sy + 20, sz + 16), 20),
         "back_down": ((px(150), 150, None), (px(60) - 20, -300, -160), 24),
     }
@@ -874,7 +874,7 @@ def zone_summit():
         _cumulus(cm, math.cos(a) * d, math.sin(a) * d, cr.uniform(-26, -8), cr.uniform(16, 26), cr, n=6)
 
     Z.h = h
-    Z.fog = ((0, 0, -12), 80.0, 0.005, 0.34)       # centre, radius, density, vertical squash: thick around, thin above
+    Z.fog = ((0, 0, -12), 80.0, 0.011, 0.34)       # centre, radius, density, vertical squash: thick around, thin above
     Z.cameras = {
         "last_steps": ((px(-15), -15, None), (0, 3, 3), 20),
         "top": ((1.8, -4.2, None), (-3.0, 6, 3.4), 20),
