@@ -83,7 +83,7 @@ def window(m, Mw, a0, a1, c0, c1, n_out, accent, rng, shutters=True, flowers=Tru
                 m.blob(0.065, jit(fcol, 0.1, rng), M=T(*q), rng=rng, sub=0, col_bot=shade(fcol, 0.9))
 
 
-def door(m, Mw, ac, n_out, col, rng, w=1.05, h=2.1, step_h=0.0, lantern=True):
+def door(m, Mw, ac, n_out, col, rng, w=1.05, h=2.1, step_h=0.0, lantern=True, hood=True):
     a0, a1 = ac - w / 2, ac + w / 2
     planks = 4
     for i in range(planks):                                    # plank door
@@ -99,7 +99,7 @@ def door(m, Mw, ac, n_out, col, rng, w=1.05, h=2.1, step_h=0.0, lantern=True):
     # little hood over the door
     hd = hexc("#6b4631")
     px = wpt(Mw, ac, h + 0.95, 0.5)
-    for s in (-1, 1):
+    for s in ((-1, 1) if hood else ()):
         e0 = wpt(Mw, ac + s * (w / 2 + 0.42), h + 0.42, 0.78)
         e1 = wpt(Mw, ac + s * (w / 2 + 0.42), h + 0.42, 0.0)
         r1 = wpt(Mw, ac, h + 0.95, 0.0)
@@ -142,7 +142,7 @@ def stone_course(m, Mw, W, c0, c1, out, rng, courses=1):
 
 
 def timber_wall(m, Mw, W, Hh, n_out, plaster, accent, rng, door_at=None, win_prob=0.6, step_h=0.0, braces=True,
-                stone=False, lit_prob=0.15, flowers=0.5, min_windows=0, door_w=1.05, door_h=2.1, door_col=None):
+                stone=False, lit_prob=0.15, flowers=0.5, min_windows=0, door_w=1.05, door_h=2.1, door_col=None, hood=True):
     """One storey of one wall: plaster panels, frame, windows, optional door. Returns list of window bays."""
     nb = max(2, int(round(W / 1.55)))
     edges = [W * i / nb for i in range(nb + 1)]
@@ -165,7 +165,7 @@ def timber_wall(m, Mw, W, Hh, n_out, plaster, accent, rng, door_at=None, win_pro
                   cols=[shade(pc, 0.8)] * 2 + [shade(pc, 1.04)] * 2)
         ac = (a0 + a1) / 2
         if i == door_bay:
-            door(m, Mw, ac, n_out, door_col or shade(accent, 0.9), rng, w=door_w, h=door_h, step_h=step_h)
+            door(m, Mw, ac, n_out, door_col or shade(accent, 0.9), rng, w=door_w, h=door_h, step_h=step_h, hood=hood)
         elif i in chosen:
             ww = min(0.95, (a1 - a0) - 0.62)
             c0 = 0.95 if Hh > 2.3 else 0.75
@@ -358,7 +358,8 @@ def build_house(seed=0, w=7.5, d=6.0, floors=2, h1=2.6, h2=2.35, base_h=0.55, je
             is_door = ground and tag == door_wall
             timber_wall(m, Mw, Wl, Hh, n, plaster, accent, rng, door_at=(Wl * rng.uniform(0.35, 0.65)) if is_door else None,
                         win_prob=win_prob if tag != "back" else win_prob * 0.6, step_h=base_h, stone=stone_ground and ground,
-                        min_windows=1 if tag in ("eave", door_wall) else 0, door_w=door_w, door_h=door_h, door_col=door_col)
+                        min_windows=1 if tag in ("eave", door_wall) else 0, door_w=door_w, door_h=door_h, door_col=door_col,
+                        hood=not (floors == 1 and door_wall == "eave"))   # a low eave already shelters the door
             if ground:
                 stone_course(m, wall_matrix((p0[0], p0[1], 0), u, n), Wl, -0.7, base_h, 0.12, rng, courses=2)
 
