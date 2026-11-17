@@ -77,50 +77,41 @@ def outline(g, inside_of=None):
 
 # ---------- eyes (left eye as drawn; the right eye is mirrored) ----------
 EYES = {
+    # left eye, outer corner on the left; "." keeps whatever is underneath.
+    # After the drawing: a long upper lid, a tall iris with a small pupil, a short lower lid, no ring around the eye.
     "base": [
-        "..KKKKKK.",
-        ".KKeeeeKK",
-        "KKeeeeeeK",
-        ".KEWWEEeK",
-        ".KEWWEEEK",
-        ".KEEEEFEK",
-        ".KFEEFFFK",
-        "..KFFFFK.",
-        "...KKKK..",
+        "KKKKKKKKKK.",
+        ".KWWEEEEWW.",
+        "..WWEEEEWW.",
+        "..WWEeeEWW.",
+        "..WWEeeEW..",
+        "...WEEEEW..",
+        "....KKKK...",
     ],
     "smile": [
-        ".........",
-        ".........",
-        ".........",
-        "..KKKKK..",
-        ".KK...KK.",
-        "KK.....KK",
-        ".........",
-        ".........",
-        ".........",
+        "...........",
+        "...........",
+        "...KKKKKK..",
+        "..K......K.",
+        ".K........K",
+        "...........",
+        "...........",
     ],
     "fear": [
-        ".........",
-        "..KKKKK..",
-        ".KWWWWWK.",
-        "KWWeeeWWK",
-        "KWWEWEWWK",
-        "KWWFFFWWK",
-        ".KWWWWWK.",
-        "..KKKKK..",
-        ".........",
+        ".KKKKKKKKK.",
+        ".KWWWWWWWW.",
+        "..WWWWWWWW.",
+        "..WWWeEWWW.",
+        "..WWWEEWWW.",
+        "..WWWWWWW..",
+        "...KKKKKK..",
     ],
 }
-# brows sit on the skin just under the fringe; inner end first
-BROWS = {
-    "base": [(2, 0, "hhhh")],
-    "smile": [(2, -1, "hhhh")],
-    "fear": [(3, -1, "hh"), (1, 0, "hh")],
-}
+BROWS = {"base": [], "smile": [], "fear": [(1, -2, "KK"), (3, -1, "KK")]}
 MOUTHS = {
-    "base": [".KKKKK.", ".KnnnK.", "..KKK.."],
-    "smile": ["KKKKKKK", ".KnnnK.", "..KKK.."],
-    "fear": ["...K...", "..KnK..", "...K..."],
+    "base": ["KKKKK", "KnnnK", ".KKK."],
+    "smile": ["KKKKKKK", "KnnnnnK", ".KnnnK.", "..KKK.."],
+    "fear": [".KK.", "KnnK", ".KK."],
 }
 SKIN = set("sSTUb")
 HAIR = set("HIJ")
@@ -147,29 +138,30 @@ def portrait(face):
         for dx, dy in ((0, 0), (2, 0), (1, 1), (0, 2), (2, 2)):
             g[51 + dy][x0 + dx] = "r"
     # ---------- back hair: a round, full cut down to the jaw ----------
-    poly(g, [(11.5, 24), (12, 13), (15, 7.5), (20, 4), (28, 2.5), (36, 4), (41, 7.5), (44, 13), (44.5, 24), (44, 34), (40, 37), (16, 37), (12, 34)], "H")
+    poly(g, [(9.5, 24), (10.5, 13), (14, 7), (20, 3.5), (28, 2), (36, 3.5), (42, 7), (45.5, 13), (46.5, 24), (46, 35), (42, 38), (14, 38), (10, 35)], "H")
     # ears
     for x0, d in ((13, 1), (43, -1)):
         poly(g, [(x0, 24), (x0 + 3 * d, 23.5), (x0 + 3.5 * d, 31), (x0 + 1.5 * d, 31.5)] if d > 0 else
              [(x0 - 3.5, 23.5), (x0, 24), (x0 - 1.5, 31.5), (x0 - 3.5, 31)], "S")
     g[27][14] = "T"; g[28][14] = "T"; g[27][41] = "T"; g[28][41] = "T"
     # ---------- face: narrow chin ----------
-    poly(g, [(15.5, 17), (40.5, 17), (40.5, 29), (38, 34.5), (32.5, 39), (28, 40.5), (23.5, 39), (18, 34.5), (15.5, 29)], "S")
-    poly(g, [(15.5, 17), (40.5, 17), (40.5, 22), (15.5, 22)], "T")         # shade under the fringe
-    poly(g, [(15.5, 28), (17, 28), (19, 34.5), (18, 34.5)], "T")
+    poly(g, [(12.5, 17), (43.5, 17), (43.5, 29), (41, 35), (35, 39.5), (28, 41), (21, 39.5), (15, 35), (12.5, 29)], "S")
+    poly(g, [(12.5, 17), (43.5, 17), (43.5, 20.5), (12.5, 20.5)], "T")     # shade under the fringe
+    poly(g, [(12.5, 28), (14, 28), (16, 34.5), (15, 34.5)], "T")
     poly(g, [(23.5, 39), (28, 40.5), (32.5, 39), (32.5, 40), (28, 41.5), (23.5, 40)], "T")
-    for x, y in ((19, 32), (20, 32), (21, 32), (35, 32), (36, 32), (37, 32)):
+    for x, y in ((16, 34), (17, 34), (18, 34), (38, 34), (39, 34), (40, 34)):
         g[y][x] = "b"
-    g[32][28] = "U"
     # ---------- fringe: spiky strands, one long lock falling between the eyes ----------
-    poly(g, [(13, 18), (15, 11), (21, 6.5), (35, 6.5), (41, 11), (43, 18), (43, 20), (13, 20)], "H")
-    strands = [((13, 19), (16, 12), (17.5, 24)), ((16, 19), (20, 11), (22, 25)), ((21, 18), (24, 10), (25.5, 23.5)),
-               ((25, 18), (28, 10), (31.5, 30.5)), ((29, 18), (32, 10), (34, 24.5)), ((33, 18), (37, 11), (37.5, 25)),
-               ((37, 19), (40, 12), (42.5, 24))]
+    poly(g, [(11, 18), (13.5, 11), (20, 6), (36, 6), (42.5, 11), (45, 18), (45, 20), (11, 20)], "H")
+    strands = [((11, 19), (14, 12), (14.5, 24)), ((13.5, 19), (17, 12), (17.5, 25)), ((16.5, 19), (19.5, 12), (20.5, 24)),
+               ((26, 18), (29, 10), (28.5, 25)), ((28.5, 18), (32, 10), (32, 26)), ((31.5, 18), (35, 10), (35.5, 25.5)),
+               ((34.5, 18), (38, 11), (38.5, 25)), ((37.5, 19), (41, 12), (41.5, 24)), ((40.5, 19), (44, 12), (44, 23))]
     for a, b, c in strands:
         poly(g, [a, b, c], "H")
-    poly(g, [(12, 18), (15.5, 18), (16.5, 33), (15, 37), (12.5, 33)], "H")  # side locks to the jaw
-    poly(g, [(40.5, 18), (44, 18), (43.5, 33), (41, 37), (39.5, 33)], "H")
+    poly(g, [(20, 20.5), (23.5, 11), (26.5, 20.5)], "S")                   # the part: forehead showing through
+    poly(g, [(21, 20.5), (23.5, 14), (26, 20.5)], "S")
+    poly(g, [(9.5, 18), (13.5, 18), (14, 33), (12.5, 38), (10, 34)], "H")    # side locks to the jaw, outside the cheeks
+    poly(g, [(42.5, 18), (46.5, 18), (46, 34), (43.5, 38), (42, 33)], "H")
     poly(g, [(16, 10), (21, 6.5), (29, 5.5), (23, 8.5), (18.5, 12)], "I")  # cool sheen on black hair
     poly(g, [(19.5, 8.5), (24, 6.8), (21, 9.5)], "J")
     poly(g, [(33, 6), (38, 8.5), (40.5, 12.5), (36.5, 9.5)], "I")
@@ -185,18 +177,19 @@ def portrait(face):
                 g[y][x] = "h"
     outline(g)
     # ---------- the face itself ----------
-    ey = 24
-    stamp(g, 17, ey, EYES[face])
-    stamp(g, 30, ey, mirror(EYES[face]))
+    ey = 25
+    stamp(g, 14, ey, EYES[face])
+    stamp(g, 31, ey, mirror(EYES[face]))
     for x_in, dy, row in BROWS[face]:
         y = ey - 2 + dy
         for k, ch in enumerate(row):
-            for xx in (25 - x_in - k, 30 + x_in + k):
+            for xx in (23 - x_in - k, 33 + x_in + k):
                 if g[y][xx] in SKIN:
                     g[y][xx] = ch
-    stamp(g, 25, 35, MOUTHS[face])
+    m = MOUTHS[face]
+    stamp(g, 28 - len(m[0]) // 2, 35, m)
     if face == "fear":                                                   # a bead of sweat
-        stamp(g, 39, 17, ["..K..", ".KWK.", "KWWFK", "KWFFK", ".KKK."])
+        stamp(g, 41, 19, ["..K..", ".KWK.", "KWWFK", "KWFFK", ".KKK."])
     return g
 
 
