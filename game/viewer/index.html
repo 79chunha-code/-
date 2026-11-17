@@ -1,0 +1,300 @@
+<title>마을과 산 둘러보기</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600&display=swap">
+<style>
+/* Layout: the model fills the screen. A small bar in the top left picks the place and the way of looking;
+   one line of controls sits in the bottom left. Nothing else covers the scene. */
+:root {
+  --bar: rgba(16, 20, 36, 0.78);
+  --bar-solid: #101424;
+  --text: #eef1f7;
+  --muted: #a7b0c4;
+  --pick: #ffd257;
+  --line: rgba(238, 241, 247, 0.16);
+  --font: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { background: var(--bar-solid); color: var(--text); font: 400 13px/1.4 var(--font); -webkit-user-select: none; user-select: none; }
+#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+.bar {
+  position: fixed; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  top: calc(10px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+.group { pointer-events: auto; display: flex; background: var(--bar); border: 1px solid var(--line); border-radius: 6px; padding: 3px; gap: 2px; }
+.group button {
+  font: 600 13px var(--font); color: var(--muted); background: transparent; border: 0; border-radius: 4px;
+  padding: 7px 10px; cursor: pointer; white-space: nowrap;
+}
+.group button:hover { color: var(--text); }
+.group button[aria-pressed="true"] { color: var(--bar-solid); background: var(--pick); }
+.group button:focus-visible { outline: 2px solid var(--pick); outline-offset: 1px; }
+.help {
+  position: fixed; z-index: 2; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  color: var(--text); font-size: 12px; text-shadow: 0 1px 2px rgba(0,0,0,.7); pointer-events: none;
+}
+.help b { color: var(--pick); font-weight: 600; }
+#loading {
+  position: fixed; z-index: 3; inset: 0; display: grid; place-items: center; pointer-events: none;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+#loading div { background: var(--bar); border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px; font-variant-numeric: tabular-nums; }
+#stick { position: fixed; z-index: 2; width: 84px; height: 84px; margin: -42px 0 0 -42px; border-radius: 50%; border: 2px solid rgba(255,255,255,.5); pointer-events: none; }
+#stick i { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: rgba(255,255,255,.6); }
+</style>
+
+<canvas id="c" tabindex="0" aria-label="3D 모델"></canvas>
+<div class="bar">
+  <div class="group" role="group" aria-label="장소" id="zones"></div>
+  <div class="group" role="group" aria-label="보는 방법">
+    <button type="button" id="mOrbit" aria-pressed="true">돌려 보기</button>
+    <button type="button" id="mWalk" aria-pressed="false">걸어 보기</button>
+  </div>
+</div>
+<p class="help" id="help"></p>
+<div id="loading"><div id="loadText">불러오는 중</div></div>
+<div id="stick" hidden><i></i></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  // Published next to the page as gzip+base64 text (<id>.glb.gz.txt); in the repository they are the plain .glb files.
+  const ZONES = [
+    { id: "village", name: "마을", repo: "../../assets/village/village.glb" },
+    { id: "forest", name: "숲길", repo: "../../assets/mountain/forest.glb" },
+    { id: "ridge", name: "능선", repo: "../../assets/mountain/ridge.glb" },
+    { id: "plateau", name: "천사의 고원", repo: "../../assets/mountain/plateau.glb" },
+    { id: "summit", name: "정상", repo: "../../assets/mountain/summit.glb" },
+  ];
+  const EYE = 1.6, STEP = 0.7;
+  const touch = matchMedia("(pointer: coarse)").matches;
+  const col = (h) => new THREE.Color(h).convertSRGBToLinear();
+
+  // ---------- Renderer and daylight ----------
+  const cv = $("c");
+  const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(55, 1, 0.1, 6000);
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  {
+    const g = sky.geometry, pos = g.attributes.position, cs = [], top = col("#3d74c9"), hor = col("#bcd6f2"), low = col("#dfe9f5");
+    for (let i = 0; i < pos.count; i++) { const y = pos.getY(i) / 4000; const c = y > 0 ? hor.clone().lerp(top, Math.min(1, y / 0.55)) : low.clone(); cs.push(c.r, c.g, c.b); }
+    g.setAttribute("color", new THREE.Float32BufferAttribute(cs, 3));
+  }
+  scene.add(sky);
+  scene.fog = new THREE.Fog(col("#c4d9f0"), 400, 3500);
+  scene.add(new THREE.HemisphereLight(col("#d6e6ff"), col("#7d806c"), 0.95));
+  const sun = new THREE.DirectionalLight(col("#fff3df"), 1.5); sun.position.set(-0.6, 1, 0.5); scene.add(sun);
+
+  function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+  addEventListener("resize", resize); resize();
+
+  // ---------- Loading ----------
+  const cache = new Map();
+  let world = null, ground = [], zone = null, loadToken = 0;
+  const showLoad = (t) => { $("loading").hidden = !t; if (t) $("loadText").textContent = t; };
+  async function fetchBytes(url, label) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(url + " " + r.status);
+    const total = +r.headers.get("content-length") || 0;
+    if (!r.body || !total) return new Uint8Array(await r.arrayBuffer());
+    const rd = r.body.getReader(), parts = []; let got = 0;
+    for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; showLoad(label + " 불러오는 중 " + Math.round((got / total) * 100) + "%"); }
+    const out = new Uint8Array(got); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  }
+  async function modelBytes(z) {
+    try {
+      const txt = new TextDecoder().decode(await fetchBytes(z.id + ".glb.gz.txt", z.name));
+      showLoad(z.name + " 푸는 중");
+      const bin = atob(txt), gz = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) gz[i] = bin.charCodeAt(i);
+      return await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+    } catch (e) {
+      return (await fetchBytes(z.repo, z.name)).buffer;
+    }
+  }
+  async function open(z) {
+    const token = ++loadToken;
+    zone = z; renderZones();
+    try { history.replaceState(null, "", "#" + z.id); } catch (e) { /* the hash is a convenience */ }
+    showLoad(z.name + " 불러오는 중");
+    try {
+      let root = cache.get(z.id);
+      if (!root) {
+        const buf = await modelBytes(z);
+        root = await new Promise((ok, fail) => new THREE.GLTFLoader().parse(buf, "", (g) => ok(g.scene), fail));
+        cache.set(z.id, root);
+      }
+      if (token !== loadToken) return;
+      if (world) scene.remove(world);
+      world = root; scene.add(world); world.updateMatrixWorld(true);
+      // what you can stand on: everything except sky, far backdrop, cloth and loose plants
+      ground = [];
+      world.traverse((o) => { if (o.isMesh && !/Cloud|Backdrop|Mountains|Bunting|GroundCover|Trees|Forest$|Water/.test(o.name + "|" + (o.parent && o.parent.name))) ground.push(o); });
+      frame();
+      showLoad(null);
+    } catch (e) {
+      if (token === loadToken) showLoad(z.name + "을(를) 불러오지 못했어요. 다른 장소를 골랐다가 다시 골라 주세요.");
+    }
+  }
+
+  // ---------- Places ----------
+  function renderZones() {
+    const box = $("zones");
+    if (!box.children.length) ZONES.forEach((z) => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = z.name; b.dataset.id = z.id;
+      b.addEventListener("click", () => open(z)); box.appendChild(b);
+    });
+    [...box.children].forEach((b) => b.setAttribute("aria-pressed", String(zone && b.dataset.id === zone.id)));
+  }
+
+  // ---------- Looking around: orbit ----------
+  const orbit = new THREE.OrbitControls(cam, cv);
+  orbit.enableDamping = true; orbit.dampingFactor = 0.08; orbit.maxPolarAngle = Math.PI * 0.495; orbit.screenSpacePanning = false;
+  let span = 100;
+  function frame() {
+    // frame the part you can walk on, not the far backdrop
+    const bb = new THREE.Box3();
+    ground.forEach((m) => bb.expandByObject(m));
+    if (bb.isEmpty()) bb.setFromObject(world);
+    const c = bb.getCenter(new THREE.Vector3()), size = bb.getSize(new THREE.Vector3());
+    span = Math.max(size.x, size.z);
+    const gy = groundAt(c.x, c.z, bb.max.y + 10);
+    orbit.target.set(c.x, gy === null ? c.y : gy, c.z);
+    orbit.minDistance = 2; orbit.maxDistance = span * 2.5;
+    cam.position.set(c.x + span * 0.18, orbit.target.y + span * 0.2, c.z + span * 0.34);
+    scene.fog.near = span * 1.2; scene.fog.far = span * 6 + 1500;
+    orbit.update();
+    if (mode === "walk") enterWalk();
+  }
+
+  // ---------- Walking ----------
+  const ray = new THREE.Raycaster(), DOWN = new THREE.Vector3(0, -1, 0);
+  function groundAt(x, z, fromY) {
+    ray.set(new THREE.Vector3(x, fromY, z), DOWN); ray.far = 5000;
+    const h = ray.intersectObjects(ground, false);
+    return h.length ? h[0].point.y : null;
+  }
+  let mode = "orbit", yaw = 0, pitch = 0, feet = 0;
+  const keys = new Set();
+  function setMode(m) {
+    mode = m;
+    $("mOrbit").setAttribute("aria-pressed", String(m === "orbit")); $("mWalk").setAttribute("aria-pressed", String(m === "walk"));
+    orbit.enabled = m === "orbit";
+    if (m === "walk") enterWalk(); else { if (document.pointerLockElement) document.exitPointerLock(); orbit.target.set(cam.position.x, feet, cam.position.z).add(new THREE.Vector3(-Math.sin(yaw) * 6, 0, -Math.cos(yaw) * 6)); cam.position.y += 4; orbit.update(); }
+    help();
+  }
+  function enterWalk() {
+    // stand where the orbit was looking, facing the same way
+    const t = orbit.target, dir = new THREE.Vector3().subVectors(t, cam.position);
+    yaw = Math.atan2(-dir.x, -dir.z); pitch = 0;
+    const g = groundAt(t.x, t.z, t.y + 200);
+    feet = g === null ? t.y : g;
+    cam.position.set(t.x, feet + EYE, t.z);
+  }
+  function walk(dt) {
+    let f = 0, s = 0;
+    if (keys.has("KeyW") || keys.has("ArrowUp")) f += 1;
+    if (keys.has("KeyS") || keys.has("ArrowDown")) f -= 1;
+    if (keys.has("KeyD") || keys.has("ArrowRight")) s += 1;
+    if (keys.has("KeyA") || keys.has("ArrowLeft")) s -= 1;
+    if (stick.on) { f += -stick.y; s += stick.x; }
+    const m = Math.hypot(f, s); if (m > 1) { f /= m; s /= m; }
+    const sp = (keys.has("ShiftLeft") || keys.has("ShiftRight") ? 12 : 4.5) * dt;
+    if (m > 0.01) {
+      const dx = (-Math.sin(yaw) * f + Math.cos(yaw) * s) * sp, dz = (-Math.cos(yaw) * f - Math.sin(yaw) * s) * sp;
+      // walls: refuse a step that climbs more than a stair's height; try each axis so you slide along them
+      for (const [mx, mz] of [[dx, dz], [dx, 0], [0, dz]]) {
+        // look down from head height: anything taller than a stair below your head is a wall; arches overhead are not
+        const nx = cam.position.x + mx, nz = cam.position.z + mz, g = groundAt(nx, nz, feet + EYE + 0.3);
+        if (g !== null && g <= feet + STEP) { cam.position.x = nx; cam.position.z = nz; break; }
+      }
+    }
+    const under = groundAt(cam.position.x, cam.position.z, feet + STEP + 0.05);
+    if (under !== null) feet += (under - feet) * Math.min(1, dt * 12);
+    cam.position.y = feet + EYE;
+    cam.rotation.set(pitch, yaw, 0, "YXZ");
+  }
+
+  // ---------- Input ----------
+  addEventListener("keydown", (e) => {
+    keys.add(e.code);
+    if (mode === "walk" && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
+  });
+  addEventListener("keyup", (e) => keys.delete(e.code));
+  addEventListener("blur", () => keys.clear());
+  const look = (dx, dy, k) => { yaw -= dx * k; pitch = Math.max(-1.45, Math.min(1.45, pitch - dy * k)); };
+  document.addEventListener("mousemove", (e) => { if (mode === "walk" && document.pointerLockElement === cv) look(e.movementX, e.movementY, 0.0022); });
+  const stick = { on: false, id: null, ox: 0, oy: 0, x: 0, y: 0 };
+  let lookPtr = null;
+  cv.addEventListener("pointerdown", (e) => {
+    if (mode !== "walk") return;
+    if (e.pointerType === "mouse") {
+      if (cv.requestPointerLock) { try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (err) { /* drag to look instead */ } }
+      lookPtr = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      return;
+    }
+    // touch: the left half is a stick, the right half turns your head
+    if (e.clientX < innerWidth / 2 && !stick.on) {
+      Object.assign(stick, { on: true, id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 });
+      const el = $("stick"); el.hidden = false; el.style.left = e.clientX + "px"; el.style.top = e.clientY + "px"; el.firstElementChild.style.transform = "";
+    } else lookPtr = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (mode !== "walk") return;
+    if (stick.on && e.pointerId === stick.id) {
+      const dx = e.clientX - stick.ox, dy = e.clientY - stick.oy, d = Math.hypot(dx, dy), k = Math.min(1, d / 40) / (d || 1);
+      stick.x = dx * k; stick.y = dy * k;
+      $("stick").firstElementChild.style.transform = "translate(" + stick.x * 28 + "px," + stick.y * 28 + "px)";
+    } else if (lookPtr && e.pointerId === lookPtr.id && document.pointerLockElement !== cv) {
+      look(e.clientX - lookPtr.x, e.clientY - lookPtr.y, e.pointerType === "mouse" ? 0.004 : 0.006);
+      lookPtr.x = e.clientX; lookPtr.y = e.clientY;
+    }
+  });
+  const up = (e) => {
+    if (stick.on && e.pointerId === stick.id) { stick.on = false; stick.x = stick.y = 0; $("stick").hidden = true; }
+    if (lookPtr && e.pointerId === lookPtr.id) lookPtr = null;
+  };
+  cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+  $("mOrbit").addEventListener("click", () => setMode("orbit"));
+  $("mWalk").addEventListener("click", () => setMode("walk"));
+
+  function help() {
+    $("help").innerHTML = mode === "orbit"
+      ? (touch ? "<b>한 손가락</b> 돌리기 · <b>두 손가락</b> 확대와 옮기기" : "<b>왼쪽 끌기</b> 돌리기 · <b>오른쪽 끌기</b> 옮기기 · <b>휠</b> 확대")
+      : (touch ? "<b>왼쪽 절반</b> 걷기 · <b>오른쪽 절반</b> 둘러보기" : "<b>WASD / 방향키</b> 걷기 · <b>Shift</b> 달리기 · <b>클릭 후 마우스</b> 둘러보기 (Esc로 풀기)");
+  }
+
+  // ---------- Loop ----------
+  let last = performance.now();
+  function tick(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (world && mode === "walk") walk(dt); else orbit.update();
+    sky.position.copy(cam.position);
+    renderer.render(scene, cam);
+    requestAnimationFrame(tick);
+  }
+  function start() {
+    renderZones(); help();
+    const want = ZONES.find((z) => "#" + z.id === location.hash) || ZONES[3];
+    open(want);
+    requestAnimationFrame(tick);
+  }
+  if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start); else start();
+  window.__viewer = { get zone() { return zone && zone.id; }, get loaded() { return $("loading").hidden; }, setMode, cam, keys };
+})();
+</script>
