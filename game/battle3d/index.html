@@ -1180,7 +1180,8 @@ function start() {
   }
   addEventListener("resize", resize);
   resize();
-  loadWorld(["plateau.glb", "../../assets/mountain/plateau.glb"]);
+  // published next to the page as plateau.gltf.json (the .glb with its buffer inlined); in the repository it is the .glb
+  loadWorld(["plateau.gltf.json", "../../assets/mountain/plateau.glb"]);
   requestAnimationFrame((t) => { last = t; tick(t); });
   window.__game = { get state() { return state; }, A, P, set(o) { if (o.turn !== undefined) turn = o.turn; if (o.ahp !== undefined) { A.hp = A.ghost = o.ahp; angelDamageLook(); } if (o.php !== undefined) P.hp = o.php; } };
 }
