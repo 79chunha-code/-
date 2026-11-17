@@ -1,0 +1,1188 @@
+<title>천사의 고원</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: the 3D plateau fills a 16:9 landscape field, rendered at 480x270 and enlarged with hard pixels.
+   The interface is drawn at the same pixel size on a canvas above it: angel's light top left, talk panel bottom left,
+   the three actions bottom right. Palette rule: yellow is light, ink navy is shadow and panels, red is Rota. */
+:root {
+  --night: #0e1230;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { background: var(--night); color: #f6f8ff; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+#stage {
+  position: fixed; inset: 0; box-sizing: border-box;
+  padding-block: env(safe-area-inset-top, 0px) env(safe-area-inset-bottom, 0px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  touch-action: none;
+}
+#field { position: absolute; }
+#gl, #ui { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; touch-action: none; }
+.hit { position: absolute; margin: 0; padding: 0; border: 0; background: transparent; color: transparent; font-size: 1px; overflow: hidden; cursor: pointer; outline: none; }
+.hit:disabled { cursor: default; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+</style>
+
+<div id="stage">
+  <div id="field">
+    <canvas id="gl" width="480" height="270" aria-hidden="true"></canvas>
+    <canvas id="ui" width="480" height="270" role="img" aria-label="전투 화면"></canvas>
+    <button class="hit" id="snd" type="button" hidden>소리 끄기</button>
+    <button class="hit" id="actFight" type="button" data-act="fight" hidden>맞선다</button>
+    <button class="hit" id="actJournal" type="button" data-act="journal" hidden>일지 펴기</button>
+    <button class="hit" id="actSky" type="button" data-act="sky" hidden>하늘 보기</button>
+    <button class="hit" id="startBtn" type="button" hidden>일지를 덮고 일어선다</button>
+    <button class="hit" id="jClose" type="button" hidden>일지를 덮고 맞선다</button>
+    <button class="hit" id="retryBtn" type="button" hidden>이 차례부터 다시</button>
+    <button class="hit" id="againBtn" type="button" hidden>처음부터 다시</button>
+  </div>
+</div>
+<p class="sr" id="say" aria-live="polite"></p>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  // font.js sits next to the page when published; in the repository it lives with the pixel demo
+  function loadScript(srcs, ok, fail) {
+    const s = document.createElement("script"); s.charset = "utf-8"; s.src = srcs[0]; s.onload = ok;
+    s.onerror = () => (srcs.length > 1 ? loadScript(srcs.slice(1), ok, fail) : fail());
+    document.head.appendChild(s);
+  }
+  function boot() { loadScript(["font.js", "../demo/font.js"], start, () => { $("say").textContent = "글꼴을 불러오지 못했어요. 새로고침해 주세요."; }); }
+  if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(boot); else boot();
+
+function start() {
+  // The simulation runs in an 800x450 logical field, the same one the pixel demo used.
+  // The stage box B lies on the plateau floor; S turns logical units into metres.
+  const FH = 270, CW = 480, TAU = Math.PI * 2;
+  let FW = CW, OX = 0;
+  const B = { x: 276, y: 196, w: 360, h: 232 };
+  const MX = B.x + B.w / 2, BCY = B.y + B.h / 2, AY = 104;
+  const G = 62, AHIT = 44, PMAX = 6, ENDURE = 8;
+  const MS = 0.024;
+  const wx = (x) => (x - MX) * MS, wz = (y) => (y - BCY) * MS;
+  const ANGEL_H = 3.1;                 // how high the angel hovers above the floor
+  const CAM = { pos: [0, 10.4, 13.6], look: [0, 1.35, -2.1], fov: 33 };
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const stageEl = $("stage"), fieldEl = $("field"), glEl = $("gl"), uiEl = $("ui"), srEl = $("say"), uctx = uiEl.getContext("2d");
+
+  // ---------- Interface palette (the world itself is 3D) ----------
+  const PAL = ["#000000", "#12163a", "#232c66", "#3558b8", "#f6f8ff", "#cdd6f1", "#9aa8dc", "#6f7dbd", "#55629f", "#3f4a82",
+    "#ffd257", "#fff1b0", "#fffbe6", "#f0932e", "#df4b43", "#ff9a86", "#f2e4c0", "#dcc89a", "#5a3a2a", "#96603c", "#9c2a35", "#6ea2e4"];
+  const C = {};
+  ["", "INK", "DEEP", "BLUE", "WHITE", "MARB1", "MARB2", "MARB3", "MARB4", "MARB5", "SUN", "SUNP", "SUNC", "ORNG", "RED", "PINK",
+    "PAPER", "PAPER2", "BROWN", "BROWN2", "REDD", "SKY3"].forEach((n, i) => { if (n) C[n] = i; });
+  const pal32 = new Uint32Array(PAL.map((h, i) => (i === 0 ? 0 : (0xff000000 | (parseInt(h.slice(5, 7), 16) << 16) | (parseInt(h.slice(3, 5), 16) << 8) | parseInt(h.slice(1, 3), 16)) >>> 0)));
+
+  // ---------- Pixel surface ----------
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const surf = (w, h) => ({ w, h, d: new Uint8Array(w * h) });
+  // OFX shifts every x: the wide surfaces are addressed in content coordinates (0..400), with scenery beyond both ends
+  let S = null, OFX = 0, cx0 = 0, cy0 = 0, cx1 = 0, cy1 = 0;
+  function target(s, ofx) { S = s; OFX = ofx || 0; cx0 = 0; cy0 = 0; cx1 = s.w; cy1 = s.h; }
+  function setClip(x, y, w, h) { x += OFX; cx0 = Math.max(0, x); cy0 = Math.max(0, y); cx1 = Math.min(S.w, x + w); cy1 = Math.min(S.h, y + h); }
+  function noClip() { cx0 = 0; cy0 = 0; cx1 = S.w; cy1 = S.h; }
+  function px(x, y, c) { x += OFX; if (x >= cx0 && x < cx1 && y >= cy0 && y < cy1) S.d[y * S.w + x] = c; }
+  // lv: dither level 1..16 (16 or undefined = solid)
+  function rect(x, y, w, h, c, lv) {
+    x = Math.round(x) + OFX; y = Math.round(y); w = Math.round(w); h = Math.round(h);
+    const x0 = Math.max(cx0, x), y0 = Math.max(cy0, y), x1 = Math.min(cx1, x + w), y1 = Math.min(cy1, y + h), d = S.d, sw = S.w;
+    if (lv === undefined || lv >= 16) { for (let yy = y0; yy < y1; yy++) d.fill(c, yy * sw + x0, yy * sw + Math.max(x0, x1)); return; }
+    for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) if (BAYER[(yy & 3) * 4 + (xx & 3)] < lv) d[yy * sw + xx] = c;
+  }
+  function frame(x, y, w, h, c) { rect(x, y, w, 1, c); rect(x, y + h - 1, w, 1, c); rect(x, y, 1, h, c); rect(x + w - 1, y, 1, h, c); }
+  function line(x0, y0, x1, y1, c, dash) {
+    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let e = dx + dy, i = 0;
+    for (let n = 0; n < 2000; n++) {
+      if (!dash || (i++ % dash) < (dash >> 1)) px(x0, y0, c);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; }
+    }
+  }
+  function disc(cx, cy, r, c, lv) {
+    cx = Math.round(cx); cy = Math.round(cy);
+    const rr = r * r + r * 0.8;
+    for (let y = -Math.ceil(r); y <= r; y++) { const hw = Math.floor(Math.sqrt(Math.max(0, rr - y * y))); if (y * y <= rr) rect(cx - hw, cy + y, hw * 2 + 1, 1, c, lv); }
+  }
+  function ring(cx, cy, r, c, dash) {
+    cx = Math.round(cx); cy = Math.round(cy);
+    const n = Math.max(8, Math.round(r * 6.4));
+    let lx = null, ly = null, i = 0;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * TAU, x = Math.round(cx + Math.cos(a) * r), y = Math.round(cy + Math.sin(a) * r);
+      if (x === lx && y === ly) continue;
+      lx = x; ly = y;
+      if (!dash || (i++ % dash) < (dash >> 1)) px(x, y, c);
+    }
+  }
+  // filled polygon, hard edges; p = [x0,y0,x1,y1,...]
+  function poly(p, c, lv) {
+    let minY = 1e9, maxY = -1e9; const n = p.length >> 1;
+    for (let i = 0; i < n; i++) { minY = Math.min(minY, p[i * 2 + 1]); maxY = Math.max(maxY, p[i * 2 + 1]); }
+    const ya = Math.max(cy0, Math.floor(minY)), yb = Math.min(cy1 - 1, Math.ceil(maxY)), xs = [];
+    for (let y = ya; y <= yb; y++) {
+      const sy = y + 0.5; xs.length = 0;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n, x1 = p[i * 2], y1 = p[i * 2 + 1], x2 = p[j * 2], y2 = p[j * 2 + 1];
+        if ((y1 <= sy && y2 > sy) || (y2 <= sy && y1 > sy)) xs.push(x1 + (sy - y1) / (y2 - y1) * (x2 - x1));
+      }
+      xs.sort((a, b) => a - b);
+      for (let i = 0; i + 1 < xs.length; i += 2) { const xa = Math.ceil(xs[i] - 0.5), xb = Math.floor(xs[i + 1] - 0.5); if (xb >= xa) rect(xa, y, xb - xa + 1, 1, c, lv); }
+    }
+  }
+  // o.tint: draw every opaque pixel in one colour. o.lv: dither level.
+  function blit(sp, x, y, o) {
+    x = Math.round(x) + OFX; y = Math.round(y);
+    const tint = o && o.tint, lv = o && o.lv, d = S.d, sw = S.w, sd = sp.d, w = sp.w;
+    for (let yy = 0; yy < sp.h; yy++) {
+      const ty = y + yy; if (ty < cy0 || ty >= cy1) continue;
+      for (let xx = 0; xx < w; xx++) {
+        const c = sd[yy * w + xx]; if (!c) continue;
+        const tx = x + xx; if (tx < cx0 || tx >= cx1) continue;
+        if (lv !== undefined && BAYER[(ty & 3) * 4 + (tx & 3)] >= lv) continue;
+        d[ty * sw + tx] = tint || c;
+      }
+    }
+  }
+  // put a 1px outline around everything opaque on a surface
+  function outline(s, c) {
+    const src = s.d.slice(), w = s.w, h = s.h, d = s.d;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (src[y * w + x]) continue;
+      if ((x > 0 && src[y * w + x - 1]) || (x < w - 1 && src[y * w + x + 1]) || (y > 0 && src[(y - 1) * w + x]) || (y < h - 1 && src[(y + 1) * w + x])) d[y * w + x] = c;
+    }
+  }
+  function spr(rows, map) {
+    const s = surf(rows[0].length, rows.length);
+    rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) s.d[y * s.w + x] = map[r[x]] || 0; });
+    return s;
+  }
+  function mulberry(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+  // ---------- Pixel font (Galmuri, see font.js) ----------
+  function mkFont(src, cap, pitch) {
+    const idx = new Map(), recs = src.data.split(" "), cache = new Map();
+    Array.from(src.chars).forEach((ch, i) => idx.set(ch, i));
+    const f = { cap, pitch, glyph(ch) {
+      let g = cache.get(ch); if (g) return g;
+      const i = idx.get(ch); if (i === undefined) return ch === "?" ? null : f.glyph("?");
+      const r = recs[i], bin = atob(r.slice(5));
+      g = { adv: r.charCodeAt(0) - 48, w: r.charCodeAt(1) - 48, h: r.charCodeAt(2) - 48, xo: r.charCodeAt(3) - 56, yo: r.charCodeAt(4) - 56, bin };
+      cache.set(ch, g); return g;
+    } };
+    return f;
+  }
+  const F11 = mkFont(window.GAME_FONTS.f11, 11, 14), F9 = mkFont(window.GAME_FONTS.f9, 9, 12);
+  function textW(str, f, sc) { let w = 0; for (const ch of str) { const g = f.glyph(ch); if (g) w += g.adv; } return (w - 1) * (sc || 1); }
+  function glyphAt(g, x, base, c, sc) {
+    for (let r = 0, i = 0; r < g.h; r++) for (let k = 0; k < g.w; k++, i++) {
+      if (g.bin.charCodeAt(i >> 3) & (0x80 >> (i & 7))) { if (sc === 1) px(x + g.xo + k, base - g.yo - g.h + r, c); else rect(x + (g.xo + k) * sc, base - (g.yo + g.h - r) * sc, sc, sc, c); }
+    }
+  }
+  // y is the top of a capital/Hangul glyph
+  function text(str, x, y, c, f, sc) {
+    sc = sc || 1; x = Math.round(x); y = Math.round(y);
+    for (const ch of str) { const g = f.glyph(ch); if (!g) continue; glyphAt(g, x, y + f.cap * sc, c, sc); x += g.adv * sc; }
+    return x;
+  }
+  function textO(str, x, y, c, oc, f, sc) {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) text(str, x + dx, y + dy, oc, f, sc);
+    text(str, x, y, c, f, sc);
+  }
+  const textC = (str, cx, y, c, f, sc) => text(str, cx - textW(str, f, sc) / 2, y, c, f, sc);
+  const textCO = (str, cx, y, c, oc, f, sc) => textO(str, Math.round(cx - textW(str, f, sc) / 2), y, c, oc, f, sc);
+  // "<b>..</b>" marks emphasis. Returns lines of cells {ch, hl}; wraps at spaces, falls back to breaking a long word.
+  function wrap(str, maxW, f) {
+    const cells = []; let hl = false;
+    for (let i = 0; i < str.length; i++) {
+      if (str.startsWith("<b>", i)) { hl = true; i += 2; continue; }
+      if (str.startsWith("</b>", i)) { hl = false; i += 3; continue; }
+      cells.push({ ch: str[i], hl });
+    }
+    const adv = (c) => { const g = f.glyph(c.ch); return g ? g.adv : 0; };
+    const lines = [[]]; let w = 0, i = 0;
+    while (i < cells.length) {
+      const cur = lines[lines.length - 1];
+      if (cells[i].ch === " ") { if (cur.length) { cur.push(cells[i]); w += adv(cells[i]); } i++; continue; }
+      let j = i, ww = 0; while (j < cells.length && cells[j].ch !== " ") { ww += adv(cells[j]); j++; }
+      if (w + ww > maxW && cur.length) { lines.push([]); w = 0; continue; }
+      if (ww > maxW) { for (; i < j; i++) { if (w + adv(cells[i]) > maxW) { lines.push([]); w = 0; } lines[lines.length - 1].push(cells[i]); w += adv(cells[i]); } continue; }
+      for (; i < j; i++) cur.push(cells[i]);
+      w += ww;
+    }
+    return lines;
+  }
+  function drawLines(lines, x, y, f, pitch, c, hc, limit) {
+    let n = 0;
+    for (const ln of lines) {
+      let xx = x;
+      for (const cell of ln) { if (limit !== undefined && n >= limit) return n; const g = f.glyph(cell.ch); if (g) { glyphAt(g, xx, y + f.cap, cell.hl ? hc : c, 1); xx += g.adv; } n++; }
+      y += pitch;
+    }
+    return n;
+  }
+
+
+  // ---------- Layout ----------
+  let cssPx = 1, rot = false, ui = null, uimg = null, uout = null;
+  let touch = matchMedia("(pointer: coarse)").matches;
+  function resize() {
+    const cs = getComputedStyle(stageEl);
+    const pl = parseFloat(cs.paddingLeft), pt = parseFloat(cs.paddingTop);
+    let aw = stageEl.clientWidth - pl - parseFloat(cs.paddingRight), ah = stageEl.clientHeight - pt - parseFloat(cs.paddingBottom);
+    const midX = pl + aw / 2, midY = pt + ah / 2;
+    rot = touch && ah > aw * 1.15;            // a phone held upright shows the game turned on its side
+    if (rot) [aw, ah] = [ah, aw];
+    const fw = clamp(Math.round((FH * aw) / ah / 2) * 2, CW, 640);   // wider screens see more of the plateau, same fight
+    if (fw !== FW || !ui) {
+      FW = fw; OX = (FW - CW) / 2;
+      ui = surf(FW, FH); uiEl.width = FW; uiEl.height = FH;
+      uimg = uctx.createImageData(FW, FH); uout = new Uint32Array(uimg.data.buffer);
+      renderer.setSize(FW, FH, false); cam.aspect = FW / FH; cam.updateProjectionMatrix();
+      for (const id in hitEls) hitEls[id].key = "";
+    }
+    const dpr = window.devicePixelRatio || 1, s = Math.min(aw / FW, ah / FH), k = Math.floor(s * dpr);
+    cssPx = k >= 2 && k / (s * dpr) >= 0.85 ? k / dpr : s;
+    Object.assign(fieldEl.style, { width: FW * cssPx + "px", height: FH * cssPx + "px", left: midX - (FW * cssPx) / 2 + "px", top: midY - (FH * cssPx) / 2 + "px", transform: rot ? "rotate(90deg)" : "" });
+  }
+
+  // ---------- Sound (square waves and noise, like an old console) ----------
+  let ac = null, muted = false;
+  function audioOn() {
+    try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); } catch (e) { ac = null; }
+  }
+  function tone(f0, f1, dur, type, vol, delay) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + (delay || 0), o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  let noiseBuf = null;
+  function noise(dur, vol, freq) {
+    if (!ac || muted) return;
+    if (!noiseBuf) { noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.4, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    const t = ac.currentTime, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    s.buffer = noiseBuf; f.type = "bandpass"; f.frequency.value = freq; f.Q.value = 0.8;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f).connect(g).connect(ac.destination); s.start(t); s.stop(t + dur);
+  }
+  const sfx = {
+    strike(s, c) { const up = 1 + Math.min(c, 8) * 0.08; noise(0.1 + 0.08 * s, 0.3 + 0.3 * s, 700); tone(190, 45, 0.16 + 0.1 * s, "square", 0.1 + 0.08 * s); tone(520 * up, 780 * up, 0.09, "square", 0.05, 0.04); },
+    tick() { tone(240, 150, 0.06, "square", 0.04); },
+    hurt() { tone(220, 55, 0.28, "square", 0.09); noise(0.2, 0.2, 400); },
+    select() { tone(660, 660, 0.04, "square", 0.035); },
+    blip() { tone(420, 400, 0.03, "square", 0.018); },
+    turn() { tone(660, 660, 0.09, "square", 0.04); tone(990, 990, 0.16, "square", 0.04, 0.09); },
+    heal() { tone(520, 520, 0.08, "square", 0.04); tone(660, 660, 0.08, "square", 0.04, 0.08); tone(780, 780, 0.16, "square", 0.04, 0.16); },
+    page() { noise(0.22, 0.12, 2400); },
+  };
+
+
+  // ---------- State ----------
+  const P = { x: MX, y: B.y + B.h * 0.7, hp: PMAX, inv: 0, focus: false, face: 0, moving: 0 };
+  const A = { x: MX, y: AY, hp: 100, ghost: 100, ghostT: 0, flash: 0, kx: 0, ky: 0, dying: 0 };
+  let L = [], pend = [], texts = [], shadows = [], timers = [];
+  let state = "loading", overlay = null, simT = 0, freeze = 0, shake = 0, impact = 0, lastImpact = -9, loadPct = 0, loadErr = "";
+  let turn = 0, T = null, pat = null, nextKey = null, tele = false;
+  let combo = 0, lastStrike = -9, turnHits = 0, totalHits = 0, bestCombo = 0, penAcc = 0;
+  let jUses = 3, sUses = 2, snap = null, winStat = "";
+  const after = (d, fn) => timers.push({ t: d, fn });
+  const later = (d, fn, mark) => pend.push({ t: d, max: d, fn, mark });
+  function orb(x, y, vx, vy, r) { L.push({ k: "orb", x, y, vx, vy, r: r || 7, best: 0, struck: false, fade: 0 }); }
+
+  // ---------- Patterns ----------
+  // Each pattern: name, dur, omen (menu text before it), hint (shown while it runs if the journal was read),
+  // page (Caelum's journal lines, <b> marks emphasis), start/update. Positions are in the 480x820 logical field; B is the box.
+  // To add a pattern, add an entry and put its key in ORDER.
+  const PATTERNS = {
+    rain: {
+      name: "빛가루", dur: 9,
+      omen: "천사가 날개를 턴다. 빛가루가 흩날린다.",
+      hint: "빛이 곁을 스쳐 <b>발밑으로 지나간 직후</b>, 그림자가 위로 선다.",
+      page: ["빛가루는 위에서 내린다네.", "곁을 스쳐 발밑으로 떨어지는 그 순간, 자네 그림자는 <b>하늘을 향해</b> 선다네.", "천사가 바로 머리 위에 있을 때를 노리게."],
+      update(T, dt, lvl) {
+        T.a = (T.a ?? 0.3) - dt;
+        if (T.a > 0) return;
+        T.a = 0.5 - 0.09 * lvl;
+        const n = 2 + (lvl > 0 && Math.random() < 0.5 ? 1 : 0);
+        for (let i = 0; i < n; i++) orb(rnd(B.x + 14, B.x + B.w - 14), B.y - 8, rnd(-12, 12), rnd(115, 140) + 22 * lvl, 7);
+      },
+    },
+    rise: {
+      name: "솟는 빛", dur: 9,
+      omen: "발밑의 흰 돌바닥이 희미하게 밝아온다.",
+      hint: "바닥이 밝아지면 <b>천사 아래에서 기다렸다가</b> 마지막에 한 걸음 비키기.",
+      page: ["바닥이 밝아오거든 그 자리를 떠나지 말게.", "아래에서 솟는 빛만큼 그림자를 <b>곧게 세워주는</b> 것은 없지.", "무섭겠지. 그래도 마지막 순간에, 한 걸음만 비키게."],
+      update(T, dt, lvl) {
+        T.a = (T.a ?? 0.4) - dt;
+        if (T.a > 0) return;
+        T.a = 0.95 - 0.16 * lvl;
+        const xs = [Math.random() < 0.55 ? clamp(P.x + rnd(-10, 10), B.x + 12, B.x + B.w - 12) : rnd(B.x + 12, B.x + B.w - 12)];
+        if (lvl > 0 && Math.random() < 0.55) xs.push(clamp(xs[0] + (Math.random() < 0.5 ? -1 : 1) * rnd(55, 90), B.x + 12, B.x + B.w - 12));
+        for (const x of xs) later(0.75, () => orb(x, B.y + B.h + 8, 0, -(180 + 25 * lvl), 8), { k: "rise", x });
+      },
+    },
+    lines: {
+      name: "빛줄기", dur: 9.5,
+      omen: "천사가 두 팔을 벌린다. 빛이 가는 줄로 펴진다.",
+      hint: "올라오는 줄에 <b>바짝 붙어 있다가</b> 틈으로 빠져나가기.",
+      page: ["빛이 줄이 되어 밀려오면 먼저 틈을 보게.", "줄은 곧게 오니, 그림자도 곧게 선다네.", "아래에서 올라오는 줄에 <b>바짝 붙어 있게.</b> 지나간 줄도 그림자를 남긴다네."],
+      update(T, dt, lvl) {
+        T.a = (T.a ?? 0.2) - dt;
+        if (T.a > 0) return;
+        T.a = 1.85 - 0.28 * lvl;
+        T.n = (T.n || 0) + 1;
+        const up = lvl === 0 ? true : T.n % 3 !== 0;
+        const gw = 78 - 10 * lvl;
+        const gap = rnd(B.x + 18 + gw / 2, B.x + B.w - 18 - gw / 2);
+        const v = 82 + 16 * lvl;
+        later(0.85, () => L.push({ k: "line", y: up ? B.y + B.h + 4 : B.y - 4, vy: up ? -v : v, gap, gw, best: 0, struck: false, fade: 0 }), { k: "gap", gap, gw, up });
+      },
+    },
+    penumbra: {
+      name: "반그림자", dur: 10,
+      omen: "천사의 가슴에서 커다란 빛 덩이가 떨어져 나온다.",
+      hint: "큰 빛과 천사 사이에 머물면 <b>흐린 그림자</b>가 천사를 갉는다.",
+      page: ["큰 빛은 그림자를 흐리게 만들지.", "그러나 흐린 그림자도 그림자라네.", "<b>큰 빛과 천사 사이에</b> 머물게. 오래 버틸수록 천사가 지친다네."],
+      start(T) { T.sun = { k: "sun", t: 0, x: B.x + B.w / 2, y: B.y + B.h * 0.6, age: 0, fade: 0 }; L.push(T.sun); },
+      update(T, dt, lvl) {
+        const s = T.sun;
+        s.age += dt; s.t += dt * (1 + 0.15 * lvl);
+        s.x = B.x + B.w / 2 + Math.sin(s.t * 0.55) * (B.w / 2 - 46);
+        s.y = B.y + B.h * 0.6 + Math.sin(s.t * 1.15 + 1) * 50;
+        T.a = (T.a ?? 1.0) - dt;
+        if (T.a > 0) return;
+        T.a = 1.35 - 0.22 * lvl;
+        T.off = (T.off || 0) + 0.31;
+        const n = 8 + 3 * lvl;
+        for (let i = 0; i < n; i++) { const a = T.off + (i / n) * TAU; orb(s.x, s.y, Math.cos(a) * (72 + 14 * lvl), Math.sin(a) * (72 + 14 * lvl), 6); }
+      },
+    },
+    final: {
+      name: "마지막 빛", dur: 11,
+      omen: "천사의 빛이 흔들린다. 남은 빛을 모두 쏟아내려 한다.",
+      hint: "솟는 빛과 빛가루가 함께 온다. <b>천사 아래</b>를 지켜라.",
+      page: ["여기까지 왔다면 자네도 알겠지.", "무섭겠지. 나도 그랬다네.", "<b>그래도 해낼 수 있다네.</b>"],
+      update(T, dt) {
+        PATTERNS.rise.update(T.r || (T.r = {}), dt, 1);
+        PATTERNS.rain.update(T.q || (T.q = {}), dt, 0);
+      },
+    },
+  };
+  const ORDER = ["rain", "rise", "lines", "penumbra"];
+  const pickNext = () => (A.hp <= 30 ? "final" : ORDER[turn % ORDER.length]);
+  const levelFor = () => Math.min(2, Math.floor(turn / ORDER.length));
+
+
+  // ---------- Talk panel ----------
+  const SAY_W = 114;
+  let sayLay = null, sayN = 0, sayTotal = 0;
+  function setSay(str, instant) {
+    sayLay = str.split("\n").map((p) => wrap(p, SAY_W, F9));
+    sayTotal = sayLay.reduce((n, l) => n + l.reduce((m, ln) => m + ln.length, 0), 0);
+    sayN = instant ? sayTotal : 0;
+    srEl.textContent = str.replace(/<\/?b>/g, "");
+  }
+  const say = (s) => setSay(s, false), sayNow = (s) => setSay(s, true);
+  const sayDone = () => sayN >= sayTotal;
+
+  // ---------- Flow ----------
+  let wantFocus = null;
+  const overlayBtn = { intro: "startBtn", journal: "jClose", lose: "retryBtn", win: "againBtn" };
+  function showOverlay(id) { overlay = id; wantFocus = overlayBtn[id] || null; }
+  function resetAll() {
+    Object.assign(A, { hp: 100, ghost: 100, ghostT: 0, flash: 0, kx: 0, ky: 0, dying: 0 });
+    P.hp = PMAX; turn = 0; jUses = 3; sUses = 2; totalHits = 0; bestCombo = 0;
+    L = []; pend = []; texts = []; timers = []; shadows = [];
+    angelDamageLook();
+  }
+  function begin() { audioOn(); resetAll(); showOverlay(null); openMenu("천사가 고원에 내려앉는다."); }
+  function openMenu(prefix) {
+    nextKey = pickNext(); state = "menu";
+    say(prefix + "\n" + PATTERNS[nextKey].omen);
+    P.x = MX; P.y = B.y + B.h * 0.7; P.inv = 0;
+    wantFocus = "actFight";
+  }
+  function startPattern(withTele) {
+    snap = { hp: P.hp, j: jUses, s: sUses, ahp: A.hp };
+    pat = PATTERNS[nextKey]; T = { t: 0, lvl: nextKey === "final" ? 1 : levelFor() };
+    tele = withTele; turnHits = 0; combo = 0; penAcc = 0;
+    P.x = MX; P.y = B.y + B.h * 0.7; P.inv = 0.6;
+    if (pat.start) pat.start(T, T.lvl);
+    state = "pattern";
+    sayNow(withTele ? pat.hint : "빛을 피하세요. <b>가까이 스치면</b> 그림자가 생겨요.");
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  }
+  function fadeAll() { L.forEach((s) => { if (!s.fade) s.fade = 0.35; }); pend = []; }
+  function endTurn() {
+    state = "turnEnd"; fadeAll(); sfx.turn();
+    const res = turnHits > 0 ? "그림자가 <b>" + turnHits + "번</b> 닿았다." : "로타는 끝까지 버텨냈다.";
+    sayNow(res);
+    after(0.7, () => {
+      damageAngel(ENDURE, "빛이 바랬다");
+      if (A.hp <= 0) { victory(); return; }
+      after(0.9, () => { turn++; openMenu(res + " 천사의 빛이 조금 바랬다."); });
+    });
+  }
+  function victory() {
+    state = "victory"; fadeAll(); A.dying = 0;
+    sayNow("천사의 빛이 꺼진다."); sfx.turn();
+    after(3.0, () => {
+      state = "won";
+      winStat = "그림자가 닿은 횟수 " + totalHits + "번, 가장 긴 연타 " + bestCombo + "번. " + (turn + 1) + "번째 차례에 끝냈어요.";
+      showOverlay("win");
+    });
+  }
+  function act(kind) {
+    if (state !== "menu" || overlay) return;
+    audioOn(); sayN = sayTotal;
+    if (kind === "fight") { sfx.select(); startPattern(false); }
+    else if (kind === "journal" && jUses > 0) { jUses--; sfx.page(); state = "journal"; showOverlay("journal"); }
+    else if (kind === "sky" && sUses > 0 && P.hp < PMAX) {
+      sUses--; P.hp = Math.min(PMAX, P.hp + 2); sfx.heal(); state = "sky";
+      say("로타는 하늘을 올려다본다. 카엘룸도 여기서 이랬을까.\n숨이 고르게 돌아온다.");
+      after(2.8, () => startPattern(false));
+    }
+  }
+  const actIds = ["actFight", "actJournal", "actSky"];
+  const actOff = (id) => state !== "menu" || !!overlay || (id === "actJournal" && jUses <= 0) || (id === "actSky" && (sUses <= 0 || P.hp >= PMAX));
+  actIds.forEach((id) => $(id).addEventListener("click", () => { if (!actOff(id)) act($(id).dataset.act); }));
+  $("jClose").addEventListener("click", () => { showOverlay(null); startPattern(true); });
+  $("startBtn").addEventListener("click", begin);
+  $("retryBtn").addEventListener("click", () => {
+    showOverlay(null);
+    P.hp = PMAX; A.hp = A.ghost = snap.ahp; jUses = snap.j; sUses = snap.s; L = []; pend = [];
+    angelDamageLook(); openMenu("로타가 다시 일어선다.");
+  });
+  $("againBtn").addEventListener("click", () => { resetAll(); state = "intro"; showOverlay("intro"); });
+  $("snd").addEventListener("click", () => { muted = !muted; $("snd").textContent = muted ? "소리 켜기" : "소리 끄기"; audioOn(); });
+
+  // ---------- Input ----------
+  const keys = new Set();
+  addEventListener("keydown", (e) => {
+    keys.add(e.code);
+    if (state === "pattern" && ["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+    if (overlay) { if (e.code === "KeyZ") { e.preventDefault(); $(overlayBtn[overlay]).click(); } return; }
+    if (state === "menu") {
+      const ids = actIds.filter((id) => !actOff(id));
+      let i = ids.indexOf(document.activeElement && document.activeElement.id);
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyA", "KeyD", "KeyW", "KeyS"].includes(e.code)) {
+        e.preventDefault();
+        i = i < 0 ? 0 : (i + (["ArrowLeft", "ArrowUp", "KeyA", "KeyW"].includes(e.code) ? -1 : 1) + ids.length) % ids.length;
+        $(ids[i]).focus(); sfx.select();
+      } else if (e.code === "KeyZ") {
+        e.preventDefault();
+        if (!sayDone()) sayN = sayTotal; else act($(i >= 0 ? ids[i] : "actFight").dataset.act);
+      }
+    }
+  });
+  addEventListener("keyup", (e) => keys.delete(e.code));
+  addEventListener("blur", () => keys.clear());
+  addEventListener("touchstart", () => { if (!touch) { touch = true; resize(); } }, { passive: true });
+  let drag = null;
+  stageEl.addEventListener("pointerdown", (e) => { if (e.target.closest && e.target.closest("button")) return; drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; if (state === "menu" && !sayDone()) sayN = sayTotal; });
+  addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (state === "pattern" && freeze <= 0) {
+      // the floor is seen at an angle, so a finger's drag maps to roughly 1.6 logical units per screen pixel
+      const k = 1.6 / cssPx * 1.1, dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k * 1.35;
+      if (rot) { P.x += dy / 1.35; P.y -= dx * 1.35; } else { P.x += dx; P.y += dy; }
+    }
+    drag.x = e.clientX; drag.y = e.clientY;
+  });
+  const endDrag = (e) => { if (drag && e.pointerId === drag.id) drag = null; };
+  addEventListener("pointerup", endDrag); addEventListener("pointercancel", endDrag);
+
+  // ---------- Combat ----------
+  function segDist(cx, cy, ax, ay, bx, by) {
+    const vx = bx - ax, vy = by - ay, wx_ = cx - ax, wy_ = cy - ay, l2 = vx * vx + vy * vy;
+    const t = l2 > 0 ? clamp((wx_ * vx + wy_ * vy) / l2, 0, 1) : 0;
+    return Math.hypot(ax + vx * t - cx, ay + vy * t - cy);
+  }
+  // world-space floating text, projected onto the interface each frame
+  function floatText(pos, txt, kind) { texts.push({ p: pos.clone(), txt, kind, life: 1.1, max: 1.1 }); }
+  const angelWorld = () => new THREE.Vector3(wx(A.x + A.kx), Y0 + ANGEL_H + Math.sin(simT * 0.9) * 0.15, wz(A.y + A.ky));
+  function damageAngel(d, label) {
+    A.hp = Math.max(0, A.hp - d); A.ghostT = 0.45; angelDamageLook();
+    if (label) floatText(angelWorld().add(new THREE.Vector3(0, -1.9, 0)), label + " " + d, "note");
+  }
+  function strike(s) {
+    if (state !== "pattern" || A.hp <= 0) return;
+    combo = simT - lastStrike < 1.6 ? combo + 1 : 1; lastStrike = simT;
+    bestCombo = Math.max(bestCombo, combo); turnHits++; totalHits++;
+    const mult = Math.min(2, 1 + 0.15 * (combo - 1));
+    const dmg = Math.max(1, Math.round((2 + 7 * s * s) * mult));
+    damageAngel(dmg);
+    const big = s > 0.72;
+    freeze = reduceMotion ? 0.03 : 0.06 + 0.1 * s;
+    shake = reduceMotion ? 0 : 0.08 + 0.22 * s;
+    if (big && !reduceMotion && simT - lastImpact > 0.6) { impact = 0.06; lastImpact = simT; }
+    A.flash = 1;
+    const dx = A.x - P.x, dy = A.y - P.y, d = Math.hypot(dx, dy) || 1;
+    A.kx += dx / d * (8 + 16 * s); A.ky += dy / d * (8 + 16 * s);
+    const aw = angelWorld();
+    spike(aw, s);
+    burst3(aw, 10 + Math.round(14 * s), 5, 1.0, "ink");
+    burst3(aw, 5 + Math.round(8 * s), 4, 0.8, "gold");
+    floatText(aw.clone().add(new THREE.Vector3((Math.random() < 0.5 ? -1 : 1) * rnd(1.4, 2.0), 0.6, 0)), String(dmg), big ? "big" : "hit");
+    if (big) floatText(aw.clone().add(new THREE.Vector3(0, -1.9, 0)), "깊게 스쳤다", "note");
+    sfx.strike(s, combo);
+    if (A.hp <= 0) victory();
+  }
+  function penTick() {
+    if (state !== "pattern" || A.hp <= 0) return;
+    damageAngel(1); A.flash = Math.max(A.flash, 0.5);
+    burst3(angelWorld(), 3, 2.5, 0.6, "ink");
+    if (!reduceMotion) shake = Math.max(shake, 0.04);
+    sfx.tick();
+    if (A.hp <= 0) victory();
+  }
+  function hurt() {
+    if (P.inv > 0 || state !== "pattern") return;
+    P.hp -= 1; P.inv = 1.2; combo = 0;
+    shake = reduceMotion ? 0 : 0.18; freeze = reduceMotion ? 0 : 0.1;
+    burst3(new THREE.Vector3(wx(P.x), Y0 + 0.35, wz(P.y)), 14, 3, 0.6, "red");
+    L.forEach((b) => { if (b.k === "orb" && !b.fade && Math.hypot(b.x - P.x, b.y - P.y) < 90) b.fade = 0.25; });
+    sfx.hurt();
+    if (P.hp <= 0) { state = "down"; fadeAll(); sayNow("로타가 쓰러졌다."); after(0.9, () => showOverlay("lose")); }
+  }
+  function lineNearest(l) {
+    const g0 = l.gap - l.gw / 2, g1 = l.gap + l.gw / 2;
+    let x = clamp(P.x, B.x, B.x + B.w);
+    if (x > g0 && x < g1) x = x - g0 < g1 - x ? g0 : g1;
+    return [x, l.y];
+  }
+  function movePlayer(dt) {
+    let mx = 0, my = 0;
+    if (keys.has("KeyA") || keys.has("ArrowLeft")) mx -= 1;
+    if (keys.has("KeyD") || keys.has("ArrowRight")) mx += 1;
+    if (keys.has("KeyW") || keys.has("ArrowUp")) my -= 1;
+    if (keys.has("KeyS") || keys.has("ArrowDown")) my += 1;
+    const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; }
+    P.focus = keys.has("ShiftLeft") || keys.has("ShiftRight");
+    const sp = P.focus ? 95 : 205;
+    P.x += mx * sp * dt; P.y += my * sp * dt;
+    P.inv = Math.max(0, P.inv - dt);
+  }
+  function physics(dt) {
+    P.x = clamp(P.x, B.x + 8, B.x + B.w - 8); P.y = clamp(P.y, B.y + 8, B.y + B.h - 8);
+    shadows = [];
+    const live = state === "pattern" && A.hp > 0;
+    const keep = [];
+    for (const s of L) {
+      if (s.fade) { s.fade -= dt; if (s.fade <= 0) continue; }
+      if (s.k === "orb") { s.x += s.vx * dt; s.y += s.vy * dt; if (s.x < B.x - 24 || s.x > B.x + B.w + 24 || s.y < B.y - 30 || s.y > B.y + B.h + 30) continue; }
+      else if (s.k === "line") { s.y += s.vy * dt; if (s.y < B.y - 12 || s.y > B.y + B.h + 12) continue; }
+      keep.push(s);
+      if (!live || s.fade || state !== "pattern") continue;
+      if (s.k === "sun") {
+        if (s.age < 0.6) continue;
+        const dx = P.x - s.x, dy = P.y - s.y, d = Math.hypot(dx, dy) || 0.001;
+        if (d < 17) { hurt(); continue; }
+        if (d < 160 && P.inv <= 0) {
+          const sc = clamp(1 - (d - 22) / 138, 0, 1), ux = dx / d, uy = dy / d, len = 90 + 430 * sc;
+          const al = segDist(A.x, A.y, P.x, P.y, P.x + ux * len, P.y + uy * len) < AHIT + 16;
+          shadows.push({ ux, uy, len, s: sc, al, soft: true });
+          if (al) { penAcc += 5 * sc * dt; while (penAcc >= 1) { penAcc -= 1; penTick(); } }
+        }
+        continue;
+      }
+      let lx, ly;
+      if (s.k === "orb") { lx = s.x; ly = s.y; } else { [lx, ly] = lineNearest(s); }
+      const dx = P.x - lx, dy = P.y - ly, d = Math.hypot(dx, dy) || 0.001;
+      if (d < (s.k === "orb" ? s.r * 0.75 + 3 : 6)) { hurt(); if (s.k === "orb") s.fade = 0.2; continue; }
+      if (d < G && P.inv <= 0) {
+        const sc = clamp(1 - (d - 7) / (G - 7), 0, 1), ux = dx / d, uy = dy / d, len = 70 + 560 * sc;
+        const al = segDist(A.x, A.y, P.x, P.y, P.x + ux * len, P.y + uy * len) < AHIT;
+        shadows.push({ ux, uy, len, s: sc, al: al && !s.struck });
+        if (!s.struck) {
+          // strike once, at the deepest moment of the alignment
+          if (al) { if (sc >= s.best) s.best = sc; else if (sc < s.best - 0.03) { s.struck = true; strike(s.best); } }
+          else if (s.best > 0) { s.struck = true; strike(s.best); }
+        }
+      } else if (s.best > 0 && !s.struck) { s.struck = true; strike(s.best); }
+    }
+    L = keep;
+  }
+
+
+  // ---------- Simulation ----------
+  let introT = 0, lastPX = P.x, lastPY = P.y;
+  function step(dt) {
+    simT += dt;
+    A.x = MX + Math.sin(simT * 0.5) * 150 + Math.sin(simT * 1.37) * 18;
+    A.y = AY + Math.sin(simT * 0.9) * 10;
+    const k = Math.exp(-dt * 8); A.kx *= k; A.ky *= k;
+    if (state === "pattern") {
+      movePlayer(dt);
+      T.t += dt; pat.update(T, dt, T.lvl);
+      if (T.t >= pat.dur && state === "pattern") endTurn();
+    } else if (state === "intro") {
+      introT -= dt; if (introT <= 0) { introT = 0.45; orb(rnd(B.x + 14, B.x + B.w - 14), B.y - 8, rnd(-10, 10), rnd(90, 120), 7); }
+    }
+    for (let i = pend.length - 1; i >= 0; i--) { const p = pend[i]; p.t -= dt; if (p.t <= 0) { pend.splice(i, 1); p.fn(); } }
+    physics(dt);
+    const mvx = P.x - lastPX, mvy = P.y - lastPY; lastPX = P.x; lastPY = P.y;
+    const mv = Math.hypot(mvx, mvy);
+    P.moving = mv > 0.2 ? 1 : Math.max(0, P.moving - dt * 6);
+    if (mv > 0.2) P.face = Math.atan2(mvx, mvy);
+    if (state === "victory") A.dying += dt;
+    texts = texts.filter((t) => { t.life -= dt; return t.life > 0; });
+  }
+
+  // ---------- The 3D world ----------
+  const col = (h) => new THREE.Color(h).convertSRGBToLinear();
+  const renderer = new THREE.WebGLRenderer({ canvas: glEl, antialias: false, powerPreference: "high-performance" });
+  renderer.setPixelRatio(1);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.9;
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(CAM.fov, CW / FH, 0.3, 3000);
+  let Y0 = 0;
+  function canvasTex(w, h, draw, srgb) {
+    const c = document.createElement("canvas"); c.width = w; c.height = h; draw(c.getContext("2d"), w, h);
+    const t = new THREE.CanvasTexture(c); if (srgb) t.encoding = THREE.sRGBEncoding; return t;
+  }
+  const radial = (stops) => canvasTex(64, 64, (g) => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); stops.forEach(([o, c]) => gr.addColorStop(o, c)); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); });
+  const glowTex = radial([[0, "#fff"], [0.22, "rgba(255,255,255,0.6)"], [0.55, "rgba(255,255,255,0.14)"], [1, "rgba(255,255,255,0)"]]);
+  const spillTex = radial([[0, "rgba(255,255,255,0.9)"], [0.5, "rgba(255,255,255,0.35)"], [1, "rgba(255,255,255,0)"]]);
+  const rimTex = radial([[0, "rgba(255,255,255,0)"], [0.62, "rgba(255,255,255,0)"], [0.7, "#fff"], [0.9, "#fff"], [1, "rgba(255,255,255,0)"]]);
+  const softTex = radial([[0, "#fff"], [0.6, "#aaa"], [1, "#000"]]);
+  const fadeTex = canvasTex(64, 4, (g) => { const gr = g.createLinearGradient(0, 0, 64, 0); gr.addColorStop(0, "#fff"); gr.addColorStop(0.75, "#999"); gr.addColorStop(1, "#000"); g.fillStyle = gr; g.fillRect(0, 0, 64, 4); });
+  const fenceTex = canvasTex(4, 64, (g) => { const gr = g.createLinearGradient(0, 0, 0, 64); gr.addColorStop(0, "#000"); gr.addColorStop(0.6, "#444"); gr.addColorStop(1, "#fff"); g.fillStyle = gr; g.fillRect(0, 0, 4, 64); });
+  const stripTex = canvasTex(4, 64, (g) => { const gr = g.createLinearGradient(0, 0, 0, 64); gr.addColorStop(0, "rgba(255,255,255,0)"); gr.addColorStop(0.5, "#fff"); gr.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = gr; g.fillRect(0, 0, 4, 64); });
+  const add = (o) => (scene.add(o), o);
+  const basic = (hex, o) => new THREE.MeshBasicMaterial(Object.assign({ color: col(hex), transparent: true, depthWrite: false }, o || {}));
+  const bright = (hex, o) => basic(hex, Object.assign({ toneMapped: false }, o || {}));   // light is never dimmed by the camera
+  const glowMat = (hex, map, o) => bright(hex, Object.assign({ map, blending: THREE.AdditiveBlending }, o || {}));
+  function floorPlane(w, d, mat, ro) { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat); m.rotation.x = -Math.PI / 2; m.renderOrder = ro || 1; return m; }
+
+  // sky: deep blue overhead, pale at the horizon
+  {
+    const R = 1500, sg = new THREE.SphereGeometry(R, 32, 16), cs = [];
+    const top = col("#0a1238"), mid = col("#1d3478"), hor = col("#7c86bf"), low = col("#8a90c0"), pos = sg.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i) / R;
+      const c = y > 0.3 ? mid.clone().lerp(top, (y - 0.3) / 0.7) : y > 0 ? hor.clone().lerp(mid, y / 0.3) : low.clone();
+      cs.push(c.r, c.g, c.b);
+    }
+    sg.setAttribute("color", new THREE.Float32BufferAttribute(cs, 3));
+    add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
+  }
+  scene.fog = new THREE.Fog(col("#6f78b0"), 70, 700);
+  add(new THREE.HemisphereLight(col("#7f93d6"), col("#262a52"), 0.5));
+  const sunL = add(new THREE.DirectionalLight(col("#c9b6ff"), 0.32)); sunL.position.set(-50, 30, 20);
+  const angelL = add(new THREE.PointLight(col("#ffd98a"), 2.2, 18, 1.4));
+
+  // the stage: a light fence the angel raises around Rota
+  const arena = add(new THREE.Group());
+  const AX0 = wx(B.x), AX1 = wx(B.x + B.w), AZ0 = wz(B.y), AZ1 = wz(B.y + B.h);
+  function buildArena() {
+    arena.position.y = Y0;
+    const w = AX1 - AX0, d = AZ1 - AZ0;
+    const wash = floorPlane(w, d, basic("#0c1140", { opacity: 0.25 })); wash.position.y = 0.01; arena.add(wash);
+    const fm = bright("#ffe2a0", { alphaMap: fenceTex, opacity: 0.7, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    const lm = bright("#fff4cc", { opacity: 0.95 });
+    const FH3 = 0.42;
+    [[0, AZ0, w, 0], [0, AZ1, w, 0], [AX0, 0, d, 1], [AX1, 0, d, 1]].forEach(([x, z, len, side]) => {
+      const f = new THREE.Mesh(new THREE.PlaneGeometry(len, FH3), fm); f.position.set(x, FH3 / 2, z); if (side) f.rotation.y = Math.PI / 2; f.renderOrder = 6; arena.add(f);
+      const l = floorPlane(side ? 0.05 : len + 0.05, side ? len + 0.05 : 0.05, lm, 2); l.position.set(x, 0.02, z); arena.add(l);
+    });
+  }
+
+  // ---------- Rota: a small doll ----------
+  const rota = add(new THREE.Group());
+  {
+    const std = (hex) => new THREE.MeshStandardMaterial({ color: col(hex), roughness: 0.85, flatShading: true, emissive: col(hex), emissiveIntensity: 0.28 });
+    const m = (geo, mat, x, y, z) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); rota.add(o); return o; };
+    const red = std("#c9463d"), redD = std("#8e2a2c"), brown = std("#5a3a2a"), skin = std("#f0c8a0"), hair = std("#3b2a26"), pack = std("#8a6a44");
+    m(new THREE.BoxGeometry(0.07, 0.17, 0.08), brown, -0.05, 0.085, 0); m(new THREE.BoxGeometry(0.07, 0.17, 0.08), brown, 0.05, 0.085, 0);
+    m(new THREE.CylinderGeometry(0.1, 0.16, 0.26, 6), red, 0, 0.3, 0);
+    m(new THREE.CylinderGeometry(0.115, 0.115, 0.035, 6), brown, 0, 0.3, 0);
+    m(new THREE.BoxGeometry(0.05, 0.2, 0.06), redD, -0.15, 0.31, 0).rotation.z = 0.25;
+    m(new THREE.BoxGeometry(0.05, 0.2, 0.06), redD, 0.15, 0.31, 0).rotation.z = -0.25;
+    m(new THREE.BoxGeometry(0.17, 0.18, 0.08), pack, 0, 0.33, -0.13);
+    m(new THREE.IcosahedronGeometry(0.12, 0), skin, 0, 0.53, 0);
+    const h = m(new THREE.IcosahedronGeometry(0.13, 0), hair, 0, 0.575, -0.03); h.scale.set(1, 0.8, 1);
+    rota.userData.mats = [red, redD, brown, skin, hair, pack];
+    rota.scale.setScalar(1.3);
+  }
+  const rotaDot = add(new THREE.Mesh(new THREE.PlaneGeometry(0.11, 0.11), basic("#ff5a4e", { opacity: 1 })));
+  rotaDot.rotation.set(-Math.PI / 2, 0, Math.PI / 4); rotaDot.renderOrder = 8;
+  const focusRing = add(new THREE.Mesh(new THREE.RingGeometry(G * MS - 0.025, G * MS, 48), basic("#f6f8ff", { opacity: 0.4 })));
+  focusRing.rotation.x = -Math.PI / 2; focusRing.renderOrder = 7;
+
+  // ---------- The angel: folded facets of white stone with a light in its chest ----------
+  const angel = add(new THREE.Group());
+  const angelMats = [], bladeMats = [];
+  {
+    const std = (hex, o) => { const mm = new THREE.MeshStandardMaterial(Object.assign({ color: col(hex), roughness: 0.6, flatShading: true, emissive: col("#c9d2ff"), emissiveIntensity: 0.55, transparent: true }, o || {})); mm.userData.base = mm.color.clone(); angelMats.push(mm); return mm; };
+    const white = std("#f4f6ff"), shade = std("#c8d1ef");
+    const up = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.55, 6), white); up.position.y = 0.58; angel.add(up);
+    const low = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.9, 6), shade); low.rotation.x = Math.PI; low.position.y = -0.65; angel.add(low);
+    const head = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), white); head.scale.set(1, 1.25, 1); head.position.y = 1.08; angel.add(head);
+    const heart = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), new THREE.MeshBasicMaterial({ color: col("#ffd257") })); heart.position.set(0, 0.32, 0.36); angel.add(heart);
+    angel.userData.heart = heart;
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.035, 4, 18), new THREE.MeshBasicMaterial({ color: col("#ffd257") })); halo.rotation.x = Math.PI / 2 - 0.25; halo.position.y = 1.46; angel.add(halo);
+    angel.userData.halo = halo;
+    const aura = new THREE.Sprite(new THREE.SpriteMaterial({ toneMapped: false, map: glowTex, color: col("#ffcf7a"), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 }));
+    aura.scale.setScalar(4.2); aura.position.set(0, 0.4, -0.4); angel.add(aura); angel.userData.aura = aura;
+    // feathers: flat blades fanned out from the shoulders, lowest first
+    const blades = [[58, 0.95, 0.2], [30, 1.25, 0.22], [10, 1.4, 0.26], [-13, 1.9, 0.3], [-35, 2.1, 0.3], [-58, 1.75, 0.26]];
+    const wings = [];
+    for (const side of [-1, 1]) {
+      const wg = new THREE.Group(); wg.position.set(side * 0.22, 0.55, -0.12); angel.add(wg); wings.push(wg);
+      blades.forEach(([deg, len, wd], i) => {
+        const a = (-deg * Math.PI) / 180, dx = Math.cos(a) * side, dy = Math.sin(a), nx = -dy * side, ny = dx * side;
+        const U = [dx * len * 0.5 + nx * wd * side, dy * len * 0.5 + ny * wd * side], D = [dx * len * 0.42 - nx * wd * 0.6 * side, dy * len * 0.42 - ny * wd * 0.6 * side];
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, U[0], U[1], -0.05 * i, dx * len, dy * len, -0.18, 0, 0, 0, dx * len, dy * len, -0.18, D[0], D[1], -0.1], 3));
+        geo.computeVertexNormals();
+        const mt = std(i % 2 ? "#e6ebfb" : "#f8f9ff", { side: THREE.DoubleSide });
+        bladeMats.push(mt);
+        wg.add(new THREE.Mesh(geo, mt));
+      });
+    }
+    angel.userData.wings = wings;
+  }
+  // which feathers turn to ink first as the angel's light fades
+  const darkRank = (() => { const n = bladeMats.length, o = Array.from({ length: n }, (_, i) => i); let a = 31; const R = () => { a = (a * 16807) % 2147483647; return a / 2147483647; }; for (let i = n - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; })();
+  const INKC = col("#262c63"), INKD = col("#0d0f2a"), WHITEC = col("#ffffff");
+  function angelDamageLook() {
+    const dark = Math.round((1 - A.hp / 100) * bladeMats.length * 0.85);
+    bladeMats.forEach((mt, i) => { mt.userData.dark = darkRank.indexOf(i) < dark; });
+  }
+  const angelShadow = add(floorPlane(AHIT * MS * 2.2, AHIT * MS * 1.6, basic("#0b0d2c", { alphaMap: softTex, opacity: 0.5 }), 3));
+  const angelRing = add(new THREE.Mesh(new THREE.RingGeometry(AHIT * MS - 0.04, AHIT * MS, 40), basic("#ffd257", { opacity: 0 })));
+  angelRing.rotation.x = -Math.PI / 2; angelRing.renderOrder = 4;
+
+  // ---------- Lights the angel throws ----------
+  const ORB_Y = 0.34;
+  const orbGeo = new THREE.IcosahedronGeometry(1, 1), boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const pools = { orb: [], line: [], sun: [] }, views = new Map();
+  function mkView(k) {
+    const v = { k, parts: [] };
+    const put = (o) => (scene.add(o), v.parts.push(o), o);
+    if (k === "orb") {
+      v.core = put(new THREE.Mesh(orbGeo, bright("#fff6c8", { depthWrite: true })));
+      v.rim = put(new THREE.Sprite(new THREE.SpriteMaterial({ map: rimTex, color: col("#e0761e"), depthWrite: false, transparent: true })));
+      v.glow = put(new THREE.Sprite(new THREE.SpriteMaterial({ toneMapped: false, map: glowTex, color: col("#ffbe3c"), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })));
+      v.spill = put(floorPlane(1, 1, glowMat("#ffb03c", spillTex, { opacity: 0.6 }), 2));
+    } else if (k === "line") {
+      v.beams = [0, 1].map(() => put(new THREE.Mesh(boxGeo, bright("#fff6c8", { depthWrite: true }))));
+      v.halos = [0, 1].map(() => put(new THREE.Mesh(boxGeo, glowMat("#ffb43c", null, { opacity: 0.35 }))));
+      v.spills = [0, 1].map(() => put(floorPlane(1, 1, glowMat("#ffae3a", stripTex, { opacity: 0.55 }), 2)));
+      v.caps = [0, 1].map(() => put(new THREE.Mesh(boxGeo, bright("#f0932e", { depthWrite: true }))));
+    } else {
+      v.core = put(new THREE.Mesh(orbGeo, bright("#fffbe6", { depthWrite: true })));
+      v.glow = put(new THREE.Sprite(new THREE.SpriteMaterial({ toneMapped: false, map: glowTex, color: col("#ffc040"), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })));
+      v.spill = put(floorPlane(1, 1, glowMat("#ffa832", spillTex, { opacity: 0.45 }), 2));
+      v.rays = put(new THREE.Mesh(new THREE.RingGeometry(0.5, 0.56, 24), glowMat("#ffd257", null, { opacity: 0.8 })));
+      v.rays.rotation.x = -Math.PI / 2;
+    }
+    return v;
+  }
+  const acquire = (k) => { const v = pools[k].pop() || mkView(k); v.parts.forEach((o) => (o.visible = true)); return v; };
+  const release = (v) => { v.parts.forEach((o) => (o.visible = false)); pools[v.k].push(v); };
+  const setOp = (o, a) => { o.material.opacity = a; };
+  function syncLights() {
+    const alive = new Set(L);
+    for (const [s, v] of views) if (!alive.has(s)) { release(v); views.delete(s); }
+    const tw = Math.floor(simT * 8) % 2;
+    for (const s of L) {
+      let v = views.get(s); if (!v) { v = acquire(s.k); views.set(s, v); }
+      const f = s.fade ? clamp(s.fade * 3, 0, 1) : 1;
+      if (s.k === "orb") {
+        const x = wx(s.x), z = wz(s.y), r = s.r * MS;
+        v.core.position.set(x, Y0 + ORB_Y, z); v.core.scale.setScalar(r * 0.95 * (0.4 + 0.6 * f)); setOp(v.core, f);
+        v.rim.position.copy(v.core.position); v.rim.scale.setScalar(r * 2.6); v.rim.material.opacity = f;
+        v.glow.position.copy(v.core.position); v.glow.scale.setScalar(r * (tw ? 6.2 : 5.6)); v.glow.material.opacity = 0.75 * f;
+        v.spill.position.set(x, Y0 + 0.02, z); v.spill.scale.setScalar(r * 9); setOp(v.spill, 0.6 * f);
+      } else if (s.k === "line") {
+        const g0 = s.gap - s.gw / 2, g1 = s.gap + s.gw / 2, z = wz(s.y);
+        [[B.x, g0], [g1, B.x + B.w]].forEach(([a, b], i) => {
+          const xa = wx(a), xb = wx(b), cx = (xa + xb) / 2, len = Math.max(0.001, xb - xa);
+          v.beams[i].position.set(cx, Y0 + ORB_Y, z); v.beams[i].scale.set(len, 0.06, 0.06); setOp(v.beams[i], f);
+          v.halos[i].position.set(cx, Y0 + ORB_Y, z); v.halos[i].scale.set(len, 0.2, 0.2); setOp(v.halos[i], 0.35 * f);
+          v.spills[i].position.set(cx, Y0 + 0.02, z); v.spills[i].scale.set(len, 0.7, 1); setOp(v.spills[i], 0.55 * f);
+        });
+        v.caps[0].position.set(wx(g0), Y0 + ORB_Y, z); v.caps[1].position.set(wx(g1), Y0 + ORB_Y, z);
+        v.caps.forEach((c) => { c.scale.set(0.06, 0.22, 0.12); setOp(c, f); });
+      } else {
+        const kk = Math.min(1, s.age / 0.6) * f, x = wx(s.x), z = wz(s.y);
+        v.core.position.set(x, Y0 + 0.6, z); v.core.scale.setScalar(0.38 * kk + 0.001); setOp(v.core, f);
+        v.glow.position.copy(v.core.position); v.glow.scale.setScalar(3.6 * kk + 0.001); v.glow.material.opacity = f;
+        v.spill.position.set(x, Y0 + 0.02, z); v.spill.scale.setScalar(160 * MS * 2 * kk + 0.001); setOp(v.spill, 0.45 * f);
+        v.rays.position.set(x, Y0 + 0.03, z); v.rays.scale.setScalar(1 + (simT * 1.5) % 1 * 0.6); setOp(v.rays, 0.8 * f * (1 - ((simT * 1.5) % 1)));
+      }
+    }
+  }
+
+  // ---------- Telegraphs, shadows and guides ----------
+  const markPool = [];
+  function syncMarks() {
+    let n = 0;
+    const get = () => { let m = markPool[n++]; if (!m) { m = add(floorPlane(1, 1, glowMat("#ffcf5a", null, { opacity: 0 }), 2)); markPool.push(m); } m.visible = true; return m; };
+    for (const p of pend) {
+      if (!p.mark) continue;
+      const k = 1 - p.t / p.max, mk = p.mark;
+      if (mk.k === "rise") {
+        const m = get(); m.position.set(wx(mk.x), Y0 + 0.025, 0); m.scale.set(14 * MS * (0.6 + 0.6 * k), AZ1 - AZ0, 1); setOp(m, 0.08 + 0.3 * k);
+        const tip = get(); tip.position.set(wx(mk.x), Y0 + 0.03, AZ1 - 0.15); tip.scale.set(0.3 + 0.2 * k, 0.3, 1); setOp(tip, 0.5 + 0.5 * k);
+      } else if (mk.k === "gap") {
+        if (Math.floor(simT * 10) % 2 && k > 0.3) continue;
+        const z = mk.up ? AZ1 - 0.05 : AZ0 + 0.05, g0 = mk.gap - mk.gw / 2, g1 = mk.gap + mk.gw / 2;
+        [[B.x, g0], [g1, B.x + B.w]].forEach(([a, b]) => { const m = get(); m.position.set((wx(a) + wx(b)) / 2, Y0 + 0.03, z); m.scale.set(wx(b) - wx(a), 0.1, 1); setOp(m, 0.9); });
+      }
+    }
+    for (; n < markPool.length; n++) markPool[n].visible = false;
+  }
+  function mkWedge() {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(12), 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+    geo.setIndex([0, 1, 2, 0, 2, 3]);
+    const m = add(new THREE.Mesh(geo, basic("#0d0f2a", { alphaMap: fadeTex, side: THREE.DoubleSide })));
+    m.renderOrder = 5; m.frustumCulled = false; return m;
+  }
+  function setWedge(m, x, z, ux, uz, len, w0, w1, y) {
+    const nx = -uz, nz = ux, ex = x + ux * len, ez = z + uz * len, attr = m.geometry.attributes.position;
+    attr.array.set([x + nx * w0, y, z + nz * w0, ex + nx * w1, y, ez + nz * w1, ex - nx * w1, y, ez - nz * w1, x - nx * w0, y, z - nz * w0]);
+    attr.needsUpdate = true;
+  }
+  const wedges = [], SH_SOFT = col("#2a3068"), SH_HARD = col("#1c2156"), SH_AL = col("#07081c");
+  function syncShadows() {
+    let n = 0;
+    const get = () => { let m = wedges[n++]; if (!m) { m = mkWedge(); wedges.push(m); } m.visible = true; return m; };
+    const live = state === "pattern" || state === "turnEnd";
+    const x = wx(P.x), z = wz(P.y);
+    if (live || state === "menu" || state === "sky") {
+      // the angel's own light gives Rota a short shadow pointing away from it
+      const adx = P.x - A.x, ady = P.y - A.y, ad = Math.hypot(adx, ady) || 1, m = get();
+      setWedge(m, x, z, adx / ad, ady / ad, 0.45, 0.1, 0.14, Y0 + 0.03); m.material.color.copy(SH_HARD); m.material.opacity = 0.35;
+    }
+    if (live) for (const s of shadows) {
+      const m = get(), len = s.len * MS;
+      if (s.soft) { setWedge(m, x, z, s.ux, s.uy, len, 10 * MS, (22 + s.len * 0.14) * MS, Y0 + 0.035); m.material.color.copy(s.al ? SH_HARD : SH_SOFT); m.material.opacity = 0.25 + 0.4 * s.s; }
+      else { setWedge(m, x, z, s.ux, s.uy, len, 6 * MS, (6 + s.len * 0.07) * MS, Y0 + (s.al ? 0.045 : 0.04)); m.material.color.copy(s.al ? SH_AL : SH_HARD); m.material.opacity = s.al ? 0.95 : 0.3 + 0.45 * s.s; }
+    }
+    for (; n < wedges.length; n++) wedges[n].visible = false;
+    return shadows.some((s) => s.al) && live;
+  }
+  const guideMat = new THREE.LineDashedMaterial({ color: col("#f6f8ff"), dashSize: 0.18, gapSize: 0.14, transparent: true, opacity: 0.85, depthWrite: false });
+  const pathMat = new THREE.LineDashedMaterial({ color: col("#f0932e"), dashSize: 0.1, gapSize: 0.1, transparent: true, opacity: 0.9, depthWrite: false });
+  const mkLine = (mat) => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3)); const l = add(new THREE.Line(g, mat)); l.frustumCulled = false; l.renderOrder = 9; return l; };
+  const setLine = (l, a, b) => { l.geometry.attributes.position.array.set([a.x, a.y, a.z, b.x, b.y, b.z]); l.geometry.attributes.position.needsUpdate = true; l.computeLineDistances(); l.visible = true; };
+  const guide = mkLine(guideMat), paths = [];
+  const sector = add(new THREE.Group());
+  { const s = new THREE.Mesh(new THREE.CircleGeometry(1.0, 12, -0.32, 0.64), basic("#ffd257", { opacity: 0.28, side: THREE.DoubleSide })); s.rotation.x = -Math.PI / 2; s.renderOrder = 4; sector.add(s); }
+  function syncGuides() {
+    const on = state === "pattern" && tele;
+    guide.visible = sector.visible = on;
+    let n = 0;
+    if (on) {
+      const px_ = wx(P.x), pz = wz(P.y), dx = P.x - A.x, dy = P.y - A.y, d = Math.hypot(dx, dy) || 1;
+      setLine(guide, new THREE.Vector3(px_, Y0 + 0.05, pz), new THREE.Vector3(wx(A.x), Y0 + 0.05, wz(A.y)));
+      sector.position.set(px_, Y0 + 0.04, pz); sector.rotation.y = Math.atan2(-dy / d, dx / d);
+      for (const s of L) if (s.k === "orb" && !s.fade) {
+        const l = paths[n] || (paths[n] = mkLine(pathMat)); n++;
+        setLine(l, new THREE.Vector3(wx(s.x), Y0 + 0.05, wz(s.y)), new THREE.Vector3(wx(s.x + s.vx * 0.6), Y0 + 0.05, wz(s.y + s.vy * 0.6)));
+      }
+    }
+    for (; n < paths.length; n++) paths[n].visible = false;
+  }
+
+  // ---------- Hit effects ----------
+  const shardGeo = new THREE.TetrahedronGeometry(0.07, 0);
+  const shardMats = { ink: basic("#0d0f2a", { depthWrite: true }), gold: basic("#ffd257", { depthWrite: true }), red: basic("#df4b43", { depthWrite: true }) };
+  const shards = [];
+  function burst3(at, n, sp, life, kind) {
+    for (let i = 0; i < n; i++) {
+      let s = shards.find((q) => !q.mesh.visible);
+      if (!s) { s = { mesh: add(new THREE.Mesh(shardGeo, shardMats.ink)), v: new THREE.Vector3(), life: 0, max: 1, spin: new THREE.Vector3() }; shards.push(s); }
+      s.mesh.material = shardMats[kind]; s.mesh.visible = true; s.mesh.position.copy(at);
+      const a = Math.random() * TAU, e = rnd(-0.4, 1), v = sp * rnd(0.35, 1);
+      s.v.set(Math.cos(a) * v, e * v, Math.sin(a) * v); s.life = s.max = life * rnd(0.6, 1);
+      s.spin.set(rnd(-12, 12), rnd(-12, 12), rnd(-12, 12)); s.mesh.scale.setScalar(rnd(0.6, 1.4));
+    }
+  }
+  const spikeGeo = new THREE.ConeGeometry(0.32, 1, 5); spikeGeo.translate(0, 0.5, 0);
+  const spikes = [];
+  // a shard of shadow rises from the angel's own shadow on the floor and runs it through
+  function spike(at, s) {
+    let k = spikes.find((q) => !q.mesh.visible);
+    if (!k) { k = { mesh: add(new THREE.Mesh(spikeGeo, basic("#07081c", { depthWrite: true, opacity: 1 }))), t: 0 }; spikes.push(k); }
+    k.mesh.visible = true; k.t = 0; k.s = s; k.mesh.position.set(at.x, Y0 + 0.02, at.z); k.h = at.y - Y0 + 0.3;
+    k.mesh.rotation.set(rnd(-0.12, 0.12), rnd(0, TAU), rnd(-0.12, 0.12));
+  }
+  function stepFx(dt) {
+    for (const s of shards) if (s.mesh.visible) {
+      s.life -= dt; if (s.life <= 0) { s.mesh.visible = false; continue; }
+      s.v.y -= 9 * dt; s.v.multiplyScalar(Math.exp(-dt * 1.5));
+      s.mesh.position.addScaledVector(s.v, dt);
+      if (s.mesh.position.y < Y0 + 0.03) { s.mesh.position.y = Y0 + 0.03; s.v.y *= -0.3; s.v.x *= 0.6; s.v.z *= 0.6; }
+      s.mesh.rotation.x += s.spin.x * dt; s.mesh.rotation.y += s.spin.y * dt;
+    }
+    for (const k of spikes) if (k.mesh.visible) {
+      k.t += dt;
+      const grow = clamp(k.t / 0.05, 0, 1), fade = clamp((k.t - 0.12) / 0.22, 0, 1);
+      const w = (0.6 + 0.8 * k.s) * (1 - fade * 0.7);
+      k.mesh.scale.set(w, k.h * grow, w); k.mesh.material.opacity = 1 - fade;
+      if (k.t > 0.34) k.mesh.visible = false;
+    }
+  }
+
+  // ---------- Plateau model ----------
+  function loadWorld(urls) {
+    new THREE.GLTFLoader().load(urls[0], (g) => {
+      const root = g.scene; scene.add(root);
+      root.traverse((o) => { if (o.isMesh) { o.material.side = THREE.FrontSide; } });
+      // find the top of the dais: cast a ray straight down at the plateau's centre
+      root.updateMatrixWorld(true);
+      const rc = new THREE.Raycaster(new THREE.Vector3(0, 400, 0), new THREE.Vector3(0, -1, 0));
+      const hits = rc.intersectObject(root, true).filter((h) => !/Cloud|Bunting/.test(h.object.name + (h.object.parent ? h.object.parent.name : "")));
+      Y0 = hits.length ? hits[0].point.y : 0;
+      buildArena();
+      state = "intro"; showOverlay("intro");
+    }, (e) => { if (e.total) loadPct = e.loaded / e.total; }, () => {
+      if (urls.length > 1) loadWorld(urls.slice(1)); else loadErr = "고원 모델을 불러오지 못했어요. 새로고침해 주세요.";
+    });
+  }
+
+  function render3D(dt) {
+    // angel
+    const aw = angelWorld();
+    let k = 1;
+    if (state === "victory") k = Math.max(0, 1 - A.dying / 2.6);
+    if (state === "won") k = 0;
+    angel.visible = k > 0;
+    angel.position.copy(aw);
+    angel.scale.setScalar(0.85 * (0.4 + 0.6 * k));
+    angel.rotation.y = Math.sin(simT * 0.7) * 0.15;
+    const flap = Math.sin(simT * 3.2) * 0.16;
+    angel.userData.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * flap; w.rotation.y = (i ? 1 : -1) * 0.25; });
+    angel.userData.halo.rotation.z = simT * 0.8;
+    const dim = A.hp <= 30 && Math.floor(simT * 8) % 2 === 0;
+    angel.userData.heart.material.color.copy(dim ? col("#f0932e") : col("#ffd257"));
+    const flash = A.flash > 0.45 ? (Math.floor(A.flash * 12) % 2 ? INKD : WHITEC) : null;
+    angel.userData.aura.material.opacity = 0.55 * k * (A.hp / 100 * 0.6 + 0.4);
+    for (const mt of angelMats) {
+      mt.color.copy(flash || (mt.userData.dark ? INKC : mt.userData.base));
+      mt.emissiveIntensity = flash === WHITEC ? 1 : flash ? 0 : mt.userData.dark ? 0.04 : 0.55;
+      mt.opacity = k;
+    }
+    if (state === "victory" && Math.random() < 0.6) burst3(aw.clone().add(new THREE.Vector3(rnd(-1.2, 1.2), rnd(-1.2, 1.2), 0)), 2, 2.5, 1.0, Math.random() < 0.5 ? "ink" : "gold");
+    angelL.position.set(aw.x, aw.y + 0.3, aw.z + 0.8); angelL.intensity = 2.2 * k * (dim ? 0.6 : 1);
+    angelShadow.position.set(wx(A.x + A.kx), Y0 + 0.03, wz(A.y + A.ky)); angelShadow.material.opacity = 0.5 * k;
+    angelRing.position.set(angelShadow.position.x, Y0 + 0.035, angelShadow.position.z);
+    // Rota
+    const showR = !(state === "down" || state === "intro" || state === "won" || state === "loading");
+    const blink = P.inv > 0 && state === "pattern" && !reduceMotion && Math.floor(P.inv * 14) % 2 === 0;
+    rota.visible = showR && !blink;
+    const rx = wx(P.x), rz = wz(P.y);
+    rota.position.set(rx, Y0 + Math.abs(Math.sin(simT * 14)) * 0.035 * P.moving, rz);
+    let dr = P.face - rota.rotation.y; dr = ((dr + Math.PI) % TAU + TAU) % TAU - Math.PI; rota.rotation.y += dr * Math.min(1, dt * 14);
+    rotaDot.visible = showR && state === "pattern"; rotaDot.position.set(rx, Y0 + 0.05, rz);
+    focusRing.visible = showR && P.focus && state === "pattern"; focusRing.position.set(rx, Y0 + 0.045, rz);
+    // lights, telegraphs, shadows
+    syncLights(); syncMarks();
+    const aligned = syncShadows();
+    angelRing.material.opacity = (aligned ? 0.95 : state === "pattern" && tele ? 0.45 : 0) * k;
+    angelRing.material.color.copy(aligned ? col("#ffd257") : col("#f6f8ff"));
+    syncGuides(); stepFx(dt);
+    // camera, with a slight drift so the scene breathes
+    const sh = shake > 0.005 ? shake : 0;
+    cam.position.set(CAM.pos[0] + Math.sin(simT * 0.21) * 0.25 + rnd(-sh, sh), CAM.pos[1] + rnd(-sh, sh), CAM.pos[2]);
+    cam.position.y += Y0;
+    cam.lookAt(CAM.look[0], Y0 + CAM.look[1], CAM.look[2]);
+    glEl.style.filter = impact > 0 ? "grayscale(1) contrast(6) brightness(1.05)" : "";
+    renderer.render(scene, cam);
+  }
+
+  // ---------- Interface ----------
+  const hitEls = {};
+  ["snd", "actFight", "actJournal", "actSky", "startBtn", "jClose", "retryBtn", "againBtn"].forEach((id) => (hitEls[id] = { el: $(id), key: "", on: false }));
+  function place(id, x, y, w, h, off) {
+    const o = hitEls[id], key = x + "," + y + "," + w + "," + h;
+    o.on = true;
+    if (o.key !== key) { o.key = key; Object.assign(o.el.style, { left: ((x + OX) / FW) * 100 + "%", top: (y / FH) * 100 + "%", width: (w / FW) * 100 + "%", height: (h / FH) * 100 + "%" }); }
+    if (o.el.hidden) o.el.hidden = false;
+    if (o.el.disabled !== !!off) o.el.disabled = !!off;
+  }
+  function endPlace() {
+    for (const id in hitEls) { const o = hitEls[id]; if (!o.on && !o.el.hidden) o.el.hidden = true; o.on = false; }
+    if (wantFocus) { const el = $(wantFocus); if (!el.hidden && !el.disabled) el.focus({ preventScroll: true }); wantFocus = null; }
+  }
+  const focused = (id) => document.activeElement && document.activeElement.id === id;
+  function slab(x, y, w, h, fill, edge) { rect(x - 1, y - 1, w + 2, h + 2, C.INK); rect(x, y, w, h, edge); rect(x + 1, y + 1, w - 2, h - 2, fill); }
+  const soul = (x, y) => { rect(x, y, 5, 5, C.RED); rect(x, y, 2, 1, C.PINK); px(x, y + 1, C.PINK); };
+  const ICON = { "#": C.WHITE };
+  const icoOn = spr(["...#.....", "..##..#..", "####...#.", "####.#.#.", "####...#.", "..##..#..", "...#....."], ICON);
+  const icoOff = spr(["...#.....", "..##.#.#.", "####.....", "####..#..", "####.....", "..##.#.#.", "...#....."], ICON);
+  const RIGHT = () => CW + OX - 8;     // panels hug the real screen edges on wide phones
+  const LEFT = () => 8 - OX;
+  function project(p) { const v = p.clone().project(cam); return [Math.round((v.x + 1) / 2 * FW - OX), Math.round((1 - v.y) / 2 * FH), v.z < 1]; }
+  function drawTexts() {
+    for (const t of texts) {
+      const [x, y0, vis] = project(t.p); if (!vis) continue;
+      const age = t.max - t.life;
+      if (t.kind === "note") { textCO(t.txt, x, y0 - Math.round(age * 6), C.WHITE, C.INK, F9, 1); continue; }
+      const hop = Math.round(Math.max(0, Math.sin(Math.min(1, age / 0.4) * Math.PI)) * 9);
+      if (t.life < 0.25 && Math.floor(t.life * 30) % 2) continue;
+      if (t.kind === "big") textCO(t.txt, x, y0 - hop - 8, C.SUN, C.INK, F11, 2); else textCO(t.txt, x, y0 - hop, C.WHITE, C.INK, F11, 1);
+    }
+    if (combo >= 2 && simT - lastStrike < 1.6 && state === "pattern") {
+      const fresh = simT - lastStrike < 0.1, [x, y] = project(angelWorld().add(new THREE.Vector3(0, -2.0, 0)));
+      textCO("그림자 " + combo + "연타", x, y - (fresh ? 2 : 0), fresh ? C.SUN : C.WHITE, C.INK, F11, 1);
+    }
+  }
+  function drawHud() {
+    if (state === "loading") {
+      const msg = loadErr || "고원으로 오르는 중 " + Math.round(loadPct * 100) + "%";
+      textCO(msg, CW / 2, FH / 2 - 6, C.WHITE, C.INK, F11, 1);
+      return;
+    }
+    if (state === "intro" || state === "won") return;
+    const lx = LEFT(), rx = RIGHT();
+    // the angel's light
+    slab(lx, 6, 170, 13, C.INK, C.WHITE);
+    text("천사", lx + 4, 8, C.WHITE, F9);
+    const bx = lx + 28, bw = 112;
+    rect(bx, 10, bw, 5, C.MARB5);
+    const gw = Math.round(bw * A.ghost / 100), hw = Math.round(bw * A.hp / 100);
+    rect(bx, 10, gw, 5, C.RED); rect(bx, 10, hw, 5, C.SUN); if (hw > 0) { rect(bx, 10, hw, 1, C.SUNP); rect(bx, 14, hw, 1, C.ORNG); }
+    const num = String(Math.ceil(A.hp)); text(num, lx + 166 - textW(num, F9), 8, C.WHITE, F9);
+    if (state === "pattern") { const tw = Math.round(170 * (1 - clamp(T.t / pat.dur, 0, 1))); rect(lx - 1, 22, 172, 4, C.INK); rect(lx, 23, tw, 2, C.SKY3); }
+    slab(rx - 16, 6, 16, 13, C.INK, focused("snd") ? C.SUN : C.WHITE);
+    blit(muted ? icoOff : icoOn, rx - 12, 9);
+    place("snd", rx - 19, 3, 22, 19);
+    // while Rota dodges, the panels step aside: only the breath stays, and the journal's hint if one was read
+    if (!["menu", "sky", "journal"].includes(state)) {
+      slab(lx, FH - 20, 80, 13, C.INK, C.WHITE);
+      text("로타", lx + 4, FH - 18, C.WHITE, F9);
+      for (let i = 0; i < PMAX; i++) { const x = lx + 28 + i * 8; if (i < P.hp) { rect(x, FH - 17, 6, 6, C.RED); rect(x, FH - 17, 2, 1, C.PINK); px(x, FH - 16, C.PINK); } else frame(x, FH - 17, 6, 6, C.MARB5); }
+      if (sayLay && (tele || state !== "pattern")) {
+        const n = sayLay.reduce((m, l) => m + l.length, 0), hh = n * 12 + 8;
+        slab(lx, 30, 132, hh, C.INK, C.WHITE);
+        let y = 34;
+        for (const lines of sayLay) { drawLines(lines, lx + 5, y, F9, 12, C.WHITE, C.SUN); y += lines.length * 12; }
+      }
+      return;
+    }
+    // bottom left: Rota's breath and the talk panel
+    const py = 186, pw = 132, ph = 78;
+    slab(lx, py, pw, ph, C.INK, C.WHITE);
+    text("로타", lx + 5, py + 5, C.WHITE, F9);
+    for (let i = 0; i < PMAX; i++) { const x = lx + 29 + i * 8; if (i < P.hp) { rect(x, py + 6, 6, 6, C.RED); rect(x, py + 6, 2, 1, C.PINK); px(x, py + 7, C.PINK); } else frame(x, py + 6, 6, 6, C.MARB5); }
+    const tn = "차례 " + (turn + 1); text(tn, lx + pw - 5 - textW(tn, F9), py + 5, C.MARB2, F9);
+    rect(lx + 4, py + 18, pw - 8, 1, C.MARB5);
+    if (sayLay) {
+      let y = py + 23, left = Math.floor(sayN);
+      for (const lines of sayLay) {
+        if (left <= 0) break;
+        text("*", lx + 5, y, C.MARB3, F9);
+        left -= drawLines(lines, lx + 13, y, F9, 12, C.WHITE, C.SUN, left);
+        y += lines.length * 12 + 2;
+      }
+    }
+    // bottom right: three actions
+    const acts = [["actFight", "맞선다", "빛 속으로"], ["actJournal", "일지 펴기", jUses + "장 남음"], ["actSky", "하늘 보기", sUses > 0 && P.hp >= PMAX ? "숨이 고르다" : sUses + "번 남음"]];
+    acts.forEach(([id, label, sub], i) => {
+      const w = 78, h = 24, x = rx - w, y = 186 + i * 27, off = actOff(id), sel = !off && focused(id);
+      slab(x, y, w, h, C.INK, sel ? C.SUN : off ? C.MARB5 : C.WHITE);
+      const lc = sel ? C.SUN : off ? C.MARB4 : C.WHITE;
+      text(label, x + 13, y + 3, lc, F9);
+      text(sub, x + 13, y + 13, sel ? C.SUNP : off ? C.MARB5 : C.MARB2, F9);
+      if (sel) soul(x + 4, y + 9);
+      place(id, x - 1, y - 1, w + 2, h + 2, off);
+    });
+  }
+  const THEME = {
+    stone: { bg: C.INK, edge: C.WHITE, frame: C.MARB5, fg: C.WHITE, hl: C.SUN, sub: C.MARB2, eye: C.SKY3, rule: 0, btn: C.WHITE, btnFg: C.INK },
+    paper: { bg: C.PAPER, edge: C.BROWN, frame: C.BROWN2, fg: C.BROWN, hl: C.REDD, sub: C.BROWN2, eye: C.BROWN2, rule: C.PAPER2, btn: C.BROWN, btnFg: C.PAPER },
+  };
+  function overlaySpec() {
+    if (overlay === "intro") return { th: "stone", w: 392, eye: "셋째 날 · 천사의 고원", title: "천사가 내려온다", btn: ["startBtn", "일지를 덮고 일어선다"],
+      rules: ["빛의 울타리 안에서 <b>빛을 피하세요.</b> 맞는 곳은 로타 발밑의 빨간 점뿐이에요.", "빛이 스치면 로타의 그림자가 반대쪽으로 뻗어요. 그림자가 <b>바닥에 드리운 천사의 그림자</b>에 닿으면 천사를 쳐요.", "피하기만 해도 돼요. 한 차례를 버틸 때마다 천사의 빛이 바래요.", "차례 사이에 <b>일지</b>를 펴거나 <b>하늘</b>을 보며 숨을 고를 수 있어요."],
+      keys: touch ? [["화면 끌기", "끈 만큼 움직임"]] : [["방향키 / WASD", "이동, 행동 고르기"], ["Shift", "천천히 움직이기"], ["Z / Enter", "정하기, 글 넘기기"]] };
+    if (overlay === "journal") { const p = PATTERNS[nextKey]; return { th: "paper", w: 320, eye: "카엘룸의 일지", title: p.name + "에 관하여", body: p.page, aside: "이번 차례에는 그림자가 가야 할 길과 빛의 길이 점선으로 보여요. 남은 장 " + jUses + "장.", btn: ["jClose", "일지를 덮고 맞선다"] }; }
+    if (overlay === "lose") return { th: "stone", w: 290, eye: "로타가 쓰러졌다", title: "빛이 너무 밝았다", body: ["다시 일어나게. 빛이 있는 한 그림자도 있다네."], btn: ["retryBtn", "이 차례부터 다시"] };
+    return { th: "paper", w: 320, eye: "그날 밤 · 로타는 맹세를 깨고 일지를 넘겼다", title: "괴물에 관하여", body: ["천사를 넘었다면, 남은 것은 정상뿐이네.", "괴물은 천사보다 훨씬 약하니 걱정 말게.", "<b>너도 꼭, 나와 같이 하늘 같은 자가 되길.</b>"], aside: winStat, btn: ["againBtn", "처음부터 다시"] };
+  }
+  function drawOverlay() {
+    if (!overlay) return;
+    rect(-OX, 0, FW, FH, C.INK, 10);
+    const sp = overlaySpec(), th = THEME[sp.th], w = sp.w, x = Math.round((CW - w) / 2), ix = x + 9, iw = w - 18;
+    const eye = wrap(sp.eye, iw, F9), tsc = textW(sp.title, F11, 2) <= iw ? 2 : 1;
+    const body = (sp.body || []).map((s) => wrap(s, iw - 6, F11)), rules = (sp.rules || []).map((s) => wrap(s, iw - 9, F9));
+    const aside = sp.aside ? wrap(sp.aside, iw, F9) : [], keyRows = sp.keys ? Math.ceil(sp.keys.length / 2) : 0;
+    let h = 7 + eye.length * 12 + 1 + 11 * tsc + 8;
+    body.forEach((l) => (h += l.length * 15 + 3)); rules.forEach((l) => (h += l.length * 12 + 3));
+    if (keyRows) h += 5 + keyRows * 12;
+    if (aside.length) h += 2 + aside.length * 12;
+    h += 6 + 19 + 7;
+    let y = Math.max(2, Math.round((FH - h) / 2));
+    slab(x, y, w, h, th.bg, th.edge); frame(x + 2, y + 2, w - 4, h - 4, th.frame);
+    y += 7;
+    drawLines(eye, ix, y, F9, 12, th.eye, th.eye); y += eye.length * 12 + 1;
+    text(sp.title, ix, y, th.fg, F11, tsc); y += 11 * tsc + 3;
+    rect(ix, y, iw, 1, th.frame); y += 5;
+    for (const l of body) {
+      if (th.rule) for (let i = 0; i < l.length; i++) rect(ix, y + 12 + i * 15, iw, 1, th.rule);
+      rect(ix, y, 2, l.length * 15 - 4, th.hl);
+      drawLines(l, ix + 6, y, F11, 15, th.fg, th.hl); y += l.length * 15 + 3;
+    }
+    for (const l of rules) { soul(ix, y + 2); drawLines(l, ix + 9, y, F9, 12, th.fg, th.hl); y += l.length * 12 + 3; }
+    if (keyRows) {
+      rect(ix, y, iw, 1, th.frame); y += 5;
+      sp.keys.forEach(([k, d], i) => { const kx = ix + (i & 1) * Math.round(iw / 2), ky = y + (i >> 1) * 12; const ex = text(k, kx, ky, th.fg, F9); text(d, ex + 6, ky, th.sub, F9); });
+      y += keyRows * 12;
+    }
+    if (aside.length) { y += 2; drawLines(aside, ix, y, F9, 12, th.sub, th.sub); y += aside.length * 12; }
+    y += 6;
+    const [id, label] = sp.btn, foc = focused(id);
+    slab(ix, y, iw, 19, th.btn, th.edge);
+    textC(label, ix + iw / 2, y + 4, th.btnFg, F11);
+    if (foc && Math.floor(performance.now() / 350) % 2) soul(Math.round(ix + iw / 2 - textW(label, F11) / 2) - 11, y + 7);
+    place(id, ix, y, iw, 20);
+  }
+  function drawUI() {
+    ui.d.fill(0); target(ui, OX);
+    drawTexts(); drawHud(); drawOverlay(); endPlace();
+    const d = ui.d; for (let i = 0; i < d.length; i++) uout[i] = pal32[d[i]];
+    uctx.putImageData(uimg, 0, 0);
+  }
+
+  // ---------- Loop ----------
+  let last = 0, blipN = 0;
+  function tick(now) {
+    const dt = Math.min(1 / 30, (now - last) / 1000 || 0); last = now;
+    for (let i = timers.length - 1; i >= 0; i--) { const t = timers[i]; t.t -= dt; if (t.t <= 0) { timers.splice(i, 1); t.fn(); } }
+    if (freeze > 0) freeze -= dt; else step(dt);
+    shake = Math.max(0, shake - dt * 1.2);
+    impact = Math.max(0, impact - dt);
+    A.flash = Math.max(0, A.flash - dt * 4);
+    if (A.ghostT > 0) A.ghostT -= dt; else A.ghost = Math.max(A.hp, A.ghost - 40 * dt);
+    if (sayN < sayTotal) { const b = Math.floor(sayN / 3); sayN = Math.min(sayTotal, sayN + dt * 38); if (Math.floor(sayN / 3) !== b && ++blipN) sfx.blip(); }
+    render3D(freeze > 0 ? 0 : dt);
+    drawUI();
+    requestAnimationFrame(tick);
+  }
+  addEventListener("resize", resize);
+  resize();
+  loadWorld(["plateau.glb", "../../assets/mountain/plateau.glb"]);
+  requestAnimationFrame((t) => { last = t; tick(t); });
+  window.__game = { get state() { return state; }, A, P, set(o) { if (o.turn !== undefined) turn = o.turn; if (o.ahp !== undefined) { A.hp = A.ghost = o.ahp; angelDamageLook(); } if (o.php !== undefined) P.hp = o.php; } };
+}
+})();
+</script>
