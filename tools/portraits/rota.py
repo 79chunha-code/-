@@ -19,9 +19,9 @@ PAL = {
     "U": (208, 146, 124),   # nose
     "b": (247, 168, 156),   # blush
     "W": (255, 255, 255),
-    "e": (52, 56, 72),      # iris dark
-    "E": (104, 112, 132),   # iris
-    "F": (176, 184, 202),   # iris light
+    "e": (28, 44, 112),     # iris dark (top and pupil)
+    "E": (58, 104, 200),    # iris
+    "F": (130, 186, 240),   # iris light (bottom)
     "m": (150, 70, 70),     # mouth
     "n": (214, 104, 104),   # mouth inside
     "c": (248, 246, 240),   # tunic
@@ -80,13 +80,13 @@ EYES = {
     # left eye, outer corner on the left; "." keeps whatever is underneath.
     # After the drawing: a long upper lid, a tall iris with a small pupil, a short lower lid, no ring around the eye.
     "base": [
-        "KKKKKKKKKK.",
-        ".KWWEEEEWW.",
-        "..WWEEEEWW.",
-        "..WWEeeEWW.",
-        "..WWEeeEW..",
-        "...WEEEEW..",
-        "....KKKK...",
+        ".KKKKKKKKK.",
+        "KKWeeeeWW..",
+        "K.WEEEEWW..",
+        "K.WEeeEW...",
+        "..WFEEFW...",
+        "...FFFF....",
+        "...........",
     ],
     "smile": [
         "...........",
@@ -109,7 +109,7 @@ EYES = {
 }
 BROWS = {"base": [], "smile": [], "fear": [(1, -2, "KK"), (3, -1, "KK")]}
 MOUTHS = {
-    "base": ["KKKKK", "KnnnK", ".KKK."],
+    "base": ["KKKK", "KnnK", ".KK."],
     "smile": ["KKKKKKK", "KnnnnnK", ".KnnnK.", "..KKK.."],
     "fear": [".KK.", "KnnK", ".KK."],
 }
