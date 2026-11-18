@@ -79,13 +79,16 @@ def outline(g, inside_of=None):
 EYES = {
     # left eye, outer corner on the left; "." keeps whatever is underneath.
     # After the drawing: a long upper lid, a tall iris with a small pupil, a short lower lid, no ring around the eye.
+    # the eye after channel's MVs: a thick upper lid that runs past the eye and ends in a little flick,
+    # an iris that fills the eye with its top tucked under the lid, a light spot low in the iris,
+    # white only at the sides, and a short lower line at the outer corner
     "base": [
-        ".KKKKKKKKK.",
-        "KKWeeeeWW..",
-        "K.WEEEEWW..",
-        "K.WEeeEW...",
-        "..WFEEFW...",
-        "...FFFF....",
+        "KK.KKKKKKK.",
+        ".KKKKKKKKKK",
+        "..WeeeeeeW.",
+        "..WEEeeEEW.",
+        "K.WEEFFEEW.",
+        ".K.WEEEEW..",
         "...........",
     ],
     "smile": [
