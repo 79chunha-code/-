@@ -77,11 +77,20 @@ def ellipsoid_rings(cz, rx, ry, rz, col_top, col_bot, steps=10, cy=0.0, bottom_p
 
 # ---------- body measurements ----------
 HEAD_C = 1.415                     # centre of the skull
-TUNIC = [  # z, rx, ry : the tunic's outline from hem to neck. Below the belt it swells out round and tucks back in
-           # at the hem, like the underside of a door knob
-    (0.645, 0.178, 0.135), (0.665, 0.205, 0.158), (0.70, 0.222, 0.17), (0.75, 0.222, 0.168), (0.80, 0.205, 0.152),
-    (0.845, 0.175, 0.128), (0.90, 0.157, 0.112), (1.00, 0.152, 0.106),
+# Below the belt the tunic hangs like the skirt of a robe. ROBE picks the cut (environment variable, default "long").
+ROBE = os.environ.get("ROBE", "long")
+SKIRTS = {
+    # flares straight out from the belt to mid-thigh
+    "aline": [(0.60, 0.235, 0.18), (0.68, 0.212, 0.162), (0.76, 0.188, 0.142), (0.84, 0.163, 0.12)],
+    # longer, falling to just above the knee
+    "long": [(0.47, 0.25, 0.195), (0.56, 0.232, 0.178), (0.66, 0.21, 0.16), (0.76, 0.186, 0.14), (0.84, 0.163, 0.12)],
+    # swells out round and tucks back in at the hem
+    "round": [(0.645, 0.178, 0.135), (0.665, 0.205, 0.158), (0.70, 0.222, 0.17), (0.75, 0.222, 0.168), (0.80, 0.205, 0.152), (0.845, 0.175, 0.128)],
+}
+TUNIC = SKIRTS[ROBE] + [  # z, rx, ry : the tunic's outline from hem to neck
+    (0.90, 0.157, 0.112), (1.00, 0.152, 0.106),
     (1.10, 0.165, 0.110), (1.165, 0.168, 0.104), (1.20, 0.075, 0.066)]
+HEM = TUNIC[0][0]
 
 
 def tunic_r(z):
@@ -162,22 +171,23 @@ def build():
 
     # ---------- tunic: white, shaded pale blue toward the hem ----------
     def slit(c):                                       # the skirt is split up both sides, below the belt
-        return not (c.z < 0.80 and abs(c.y) < 0.03)
+        return not (c.z < 0.79 and abs(c.y) < 0.03)
     rings = []
     for z, rx, ry in TUNIC:
-        t = (z - 0.645) / 0.55
+        t = (z - HEM) / (1.2 - HEM)
         rings.append((z, rx, ry, mix(WHITE_SH, WHITE, min(1.0, 0.2 + t))))
     lathe(cloth, rings, 24, cap0=False, keep=slit)
     lathe(cloth, [(z, rx - 0.006, ry - 0.006, shade(WHITE_SH, 0.86)) for z, rx, ry in TUNIC if z <= 0.85], 24,
           cap0=False, cap1=False, keep=slit, inward=True)                       # the lining, seen from below
     # brown edging along the hem
-    lathe(leather, [(0.643, 0.181, 0.138, BROWN_D), (0.655, 0.196, 0.15, BROWN), (0.668, 0.209, 0.161, BROWN)], 24, cap0=False, cap1=False, keep=slit)
-    lathe(leather, [(0.643, 0.173, 0.13, BROWN_D), (0.668, 0.2, 0.152, BROWN)], 24, cap0=False, cap1=False, keep=slit, inward=True)
+    band = [(HEM - 0.002 + k * 0.012, *(v + 0.003 for v in tunic_r(HEM - 0.002 + k * 0.012))) for k in range(3)]
+    lathe(leather, [(z, rx, ry, BROWN_D if k == 0 else BROWN) for k, (z, rx, ry) in enumerate(band)], 24, cap0=False, cap1=False, keep=slit)
+    lathe(leather, [(z, rx - 0.011, ry - 0.011, BROWN) for z, rx, ry in band], 24, cap0=False, cap1=False, keep=slit, inward=True)
 
     # trim lines and cross stitches down the front
     for s in (-1, 1):
         x = s * 0.098
-        zs = [0.665 + k * 0.02 for k in range(20)]
+        zs = [HEM + 0.02 + k * 0.02 for k in range(40)]
         for z0, z1 in zip(zs, zs[1:]):
             if z1 > 1.05:
                 break
@@ -231,7 +241,7 @@ def build():
         lathe(leather, [(-0.011, rx + 0.009, ry + 0.009, BROWN_D), (0.011, rx + 0.009, ry + 0.009, BROWN)], 20,
               M=T(0, 0, z) @ R("X", 1.5) @ R("Y", tilt), cap0=False, cap1=False)
     for s in (-1, 1):
-        M = T(s * 0.19, 0.0, 0.825)
+        M = T(s * (tunic_r(0.83)[0] + 0.02), 0.0, 0.825)
         leather.box((0.04, 0.06, 0.095), BROWN, M=M, grad=0.8)
         leather.box((0.044, 0.064, 0.03), BROWN_L, M=M @ T(0, 0, 0.075), grad=0.9)
 
