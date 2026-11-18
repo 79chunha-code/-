@@ -157,17 +157,23 @@ def build():
             F.append((2 * k, 2 * k + 2, 2 * k + 3, 2 * k + 1))        # inner side, so it has a back
         hair.add(V, F, C, smooth=True)
 
+    # locks of hair: wide at the root, tapering to a soft point, different lengths, narrow gaps between
+    LOCKS = [(0.0, 0.11, 0.04), (0.11, 0.22, 0.052), (0.29, 0.43, 0.075), (0.43, 0.57, 0.055),
+             (0.57, 0.71, 0.062), (0.71, 0.85, 0.046), (0.85, 1.0, 0.036)]
+
+    def lock(u, depth, root=1.465):
+        # a strip of hair: steep sides, a blunt rounded end, only a slight taper
+        v = 1 - abs(2 * u - 1)                         # 0 at the gaps, 1 in the middle of the lock
+        return root - depth * min(1.0, (v / 0.6) ** 0.5) * (0.85 + 0.15 * v)
+
     def fringe(t):
-        # seven strands across the brow; the part shows a wedge of forehead on the left
-        k = t * 7
-        saw = abs((k % 1.0) - 0.5) * 2                 # 1 at the gaps, 0 at the tips
-        z = 1.418 + 0.04 * saw
-        if 0.22 < t < 0.3:                             # the part
-            z = max(z, 1.478)
-        return z
-    shell(-160, -20, 56, fringe)
-    for a0 in (-178, -2):                              # side locks to the jaw, pointed at the tip
-        shell(a0, a0 + 20, 8, lambda t: 1.312 + 0.09 * abs(t - 0.5) * 2, z_top=1.47)
+        for t0, t1, depth in LOCKS:
+            if t0 <= t <= t1:
+                return lock((t - t0) / (t1 - t0), depth)
+        return 1.47                                    # the part: a wedge of forehead shows
+    shell(-160, -20, 112, fringe)
+    for a0 in (-178, -2):                              # side locks to the jaw
+        shell(a0, a0 + 20, 12, lambda t: lock(t, 0.085, 1.405), z_top=1.47)
 
     # ---------- tunic: white, shaded pale blue toward the hem ----------
     def slit(c):                                       # the skirt is split up both sides, below the belt
