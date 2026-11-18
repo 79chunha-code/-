@@ -38,7 +38,7 @@ def ring_pts(cx, cy, z, rx, ry, n, a0=0.0):
     return [(cx + math.cos(a0 + i / n * math.tau) * rx, cy + math.sin(a0 + i / n * math.tau) * ry, z) for i in range(n)]
 
 
-def lathe(m, rings, n, M=None, cap0=True, cap1=True, keep=None):
+def lathe(m, rings, n, M=None, cap0=True, cap1=True, keep=None, inward=False):
     """rings: (z, rx, ry, col[, cx, cy]) from bottom to top. Smooth shaded, outward normals.
     keep(face_centre) -> bool can drop faces (used to open the face in the hair)."""
     V, C, F = [], [], []
@@ -55,7 +55,7 @@ def lathe(m, rings, n, M=None, cap0=True, cap1=True, keep=None):
                 c = sum((Vector(V[q]) for q in f), Vector()) / 4
                 if not keep(c):
                     continue
-            F.append(f)
+            F.append(f[::-1] if inward else f)
     if cap0 and rings[0][1] > 1e-4:
         F.append(tuple(range(n))[::-1])
     if cap1 and rings[-1][1] > 1e-4:
@@ -77,8 +77,10 @@ def ellipsoid_rings(cz, rx, ry, rz, col_top, col_bot, steps=10, cy=0.0, bottom_p
 
 # ---------- body measurements ----------
 HEAD_C = 1.415                     # centre of the skull
-TUNIC = [  # z, rx, ry : the tunic's outline from hem to neck
-    (0.70, 0.188, 0.135), (0.80, 0.172, 0.122), (0.90, 0.158, 0.112), (1.00, 0.152, 0.106),
+TUNIC = [  # z, rx, ry : the tunic's outline from hem to neck. Below the belt it swells out round and tucks back in
+           # at the hem, like the underside of a door knob
+    (0.645, 0.178, 0.135), (0.665, 0.205, 0.158), (0.70, 0.222, 0.17), (0.75, 0.222, 0.168), (0.80, 0.205, 0.152),
+    (0.845, 0.175, 0.128), (0.90, 0.157, 0.112), (1.00, 0.152, 0.106),
     (1.10, 0.165, 0.110), (1.165, 0.168, 0.104), (1.20, 0.075, 0.066)]
 
 
@@ -159,25 +161,30 @@ def build():
         shell(a0, a0 + 20, 8, lambda t: 1.312 + 0.09 * abs(t - 0.5) * 2, z_top=1.47)
 
     # ---------- tunic: white, shaded pale blue toward the hem ----------
+    def slit(c):                                       # the skirt is split up both sides, below the belt
+        return not (c.z < 0.80 and abs(c.y) < 0.03)
     rings = []
     for z, rx, ry in TUNIC:
-        t = (z - 0.70) / 0.5
-        rings.append((z, rx, ry, mix(WHITE_SH, WHITE, min(1.0, 0.25 + t))))
-    lathe(cloth, rings, 20)
-    # hem band in brown, like the drawing's edging
-    lathe(leather, [(0.695, 0.19, 0.137, BROWN), (0.715, 0.187, 0.134, BROWN)], 20, cap0=False, cap1=False)
+        t = (z - 0.645) / 0.55
+        rings.append((z, rx, ry, mix(WHITE_SH, WHITE, min(1.0, 0.2 + t))))
+    lathe(cloth, rings, 24, cap0=False, keep=slit)
+    lathe(cloth, [(z, rx - 0.006, ry - 0.006, shade(WHITE_SH, 0.86)) for z, rx, ry in TUNIC if z <= 0.85], 24,
+          cap0=False, cap1=False, keep=slit, inward=True)                       # the lining, seen from below
+    # brown edging along the hem
+    lathe(leather, [(0.643, 0.181, 0.138, BROWN_D), (0.655, 0.196, 0.15, BROWN), (0.668, 0.209, 0.161, BROWN)], 24, cap0=False, cap1=False, keep=slit)
+    lathe(leather, [(0.643, 0.173, 0.13, BROWN_D), (0.668, 0.2, 0.152, BROWN)], 24, cap0=False, cap1=False, keep=slit, inward=True)
 
     # trim lines and cross stitches down the front
     for s in (-1, 1):
         x = s * 0.098
-        zs = [0.71 + k * 0.02 for k in range(18)]
+        zs = [0.665 + k * 0.02 for k in range(20)]
         for z0, z1 in zip(zs, zs[1:]):
             if z1 > 1.05:
                 break
             y0, y1 = front_y(x, z0, 0.003), front_y(x, z1, 0.003)
             cloth.quad((x - s * 0.006, y0, z0), (x + s * 0.006, y0, z0), (x + s * 0.006, y1, z1), (x - s * 0.006, y1, z1), BROWN) if s < 0 else \
                 cloth.quad((x - 0.006, y0, z0), (x + 0.006, y0, z0), (x + 0.006, y1, z1), (x - 0.006, y1, z1), BROWN)
-        for z in (1.035, 0.985, 0.935, 0.795, 0.745):
+        for z in (1.045, 1.0, 0.955, 0.91):
             xc = s * 0.068
             for d in (1, -1):
                 a = (xc - 0.014, front_y(xc - 0.014, z - d * 0.014, 0.005), z - d * 0.014)
@@ -186,6 +193,13 @@ def build():
                 nrm = Vector((0, -1, 0))
                 side = u.cross(nrm).normalized() * 0.0045
                 cloth.quad(Vector(a) - side, Vector(b) - side, Vector(b) + side, Vector(a) + side, BROWN_D)
+
+    for s in (-1, 1):                                  # straps hanging from the belt, a loop at each end
+        x = s * 0.052
+        for z0, z1 in zip([0.86 - k * 0.02 for k in range(6)], [0.84 - k * 0.02 for k in range(6)]):
+            y0, y1 = front_y(x, z0, 0.007), front_y(x, z1, 0.007)
+            leather.quad((x - 0.008, y1, z1), (x + 0.008, y1, z1), (x + 0.008, y0, z0), (x - 0.008, y0, z0), BROWN)
+        leather.box((0.026, 0.012, 0.022), BROWN_D, M=T(x, front_y(x, 0.74, 0.012), 0.732))
 
     # ---------- the brown hood lying around the neck, dipping to a V ----------
     n = 28
@@ -217,7 +231,7 @@ def build():
         lathe(leather, [(-0.011, rx + 0.009, ry + 0.009, BROWN_D), (0.011, rx + 0.009, ry + 0.009, BROWN)], 20,
               M=T(0, 0, z) @ R("X", 1.5) @ R("Y", tilt), cap0=False, cap1=False)
     for s in (-1, 1):
-        M = T(s * 0.188, 0.0, 0.81)
+        M = T(s * 0.19, 0.0, 0.825)
         leather.box((0.04, 0.06, 0.095), BROWN, M=M, grad=0.8)
         leather.box((0.044, 0.064, 0.03), BROWN_L, M=M @ T(0, 0, 0.075), grad=0.9)
 
