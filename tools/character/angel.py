@@ -5,7 +5,8 @@
 정한 사양 (대화로 하나씩 정함):
 - 몸: 다리가 안 보이는 긴 흰 로브, 종처럼 퍼진 밑단, 팔 없음, 깃과 밑단에 하늘색 테두리, 깃 안에서 하늘색 빛이 샘
 - 머리: 목 위에 떠 있는 사실적인 맨 눈알 (하늘색 홍채, 흰자에 엷은 핏줄). 눈알 지름과 몸(로브) 높이가 1:1
-- 기울어진 고리 하나에 작고 둥근 눈알 12개, 눈알 뒤에 빛살 원판 후광 (많이 퍼지지 않게)
+- 토성처럼 누운 고리: 속이 빈 낮은 원통(띠)에 작은 눈알 12개가 반쯤 박혀 있음
+- 눈알 뒤에 빛살 원판 후광 (많이 퍼지지 않게). 후광과 깃 안의 빛은 금색, 몸과 눈은 하늘색
 - 날개 세 쌍: 겹겹이 쌓인 둥근 깃털, 바깥쪽 큰 깃털에만 단순한 눈 무늬
   피해를 입으면 날개 눈이 하나씩 감김: 열린 눈(Angel_WingEyeOpen_*) 뒤에 감긴 눈(Angel_WingEyeClosed_*)이 있어서
   게임에서 열린 눈을 숨기면 속눈썹 달린 곡선이 드러난다
@@ -35,6 +36,7 @@ WHITE_DEEP = hexc("#9fb0d2")
 SKY = hexc("#7fb8ec")
 SKY_D = hexc("#4f8fd6")
 SKY_GLOW = hexc("#9fd4ff")
+GOLD_GLOW = hexc("#ffd27a")     # the halo and the light in the collar are gold; body and eyes stay sky blue
 
 # The eye and the body are the same size (1:1): the robe stands 2.4 m, the eye is 2.4 m across.
 # The robe is drawn at a 3.62 m scale and shrunk by BODY (x, y, z).
@@ -162,7 +164,7 @@ def halo_texture(name, s=512):
     rays2 = (0.5 + 0.5 * np.cos(a * 24 + np.pi)) ** 10 * np.clip((r - 0.45) / 0.08, 0, 1) * np.clip((0.7 - r) / 0.2, 0, 1)
     alpha = np.clip(disc + rays * 0.8 + rays2 * 0.5, 0, 1)
     t = np.clip(r / 0.85, 0, 1)[..., None]
-    col = lin([1.0, 1.0, 1.0]) * (1 - t) + lin([0.62, 0.84, 1.0]) * t
+    col = lin([1.0, 0.97, 0.88]) * (1 - t) + lin([1.0, 0.76, 0.32]) * t
     out = np.concatenate([col, alpha[..., None]], -1)
     return save_image(name, out, s, s)
 
@@ -344,7 +346,7 @@ def collar_light(mat, parent):
     ring1 = [(math.cos(i / n * math.tau) * 0.29, math.sin(i / n * math.tau) * 0.27, COLLAR_Z - 0.03) for i in range(n)]
     V = ring0 + ring1 + [(0, 0, COLLAR_Z - 0.09)]
     F = [(n + i, n + (i + 1) % n, (i + 1) % n, i) for i in range(n)] + [(i, (i + 1) % n, 2 * n) for i in range(n)]
-    m.add(V, F, [SKY_GLOW] * len(V), smooth=True)
+    m.add(V, F, [GOLD_GLOW] * len(V), smooth=True)
     return obj_from(shrink(m), "Angel_CollarLight", mat, parent)
 
 
@@ -453,9 +455,9 @@ def mirror_mesh(m):
 # assembly
 # =====================================================================================
 WINGS = [  # name, root (x, y, z), angle of the arm above horizontal, sweep back, span, droop of the feathers
-    ("Top", (0.24, 0.30, 2.25), 64, 10, 3.75, 70),
-    ("Mid", (0.30, 0.32, 2.02), 6, 16, 3.0, 75),
-    ("Low", (0.28, 0.28, 1.75), -50, 12, 2.0, 55),
+    ("Top", (0.24, 0.30, 2.32), 30, 10, 4.2, 72),
+    ("Mid", (0.30, 0.34, 2.04), 4, 14, 3.6, 75),
+    ("Low", (0.28, 0.30, 1.76), -20, 12, 2.9, 62),
 ]
 
 
@@ -472,7 +474,7 @@ def build(scene):
     m_open = mat_image("angel_wing_eye_open", open_img, rough=0.5, mask=True)
     m_closed = mat_image("angel_wing_eye_closed", closed_img, rough=0.5, mask=True)
     m_halo = mat_image("angel_halo", halo_img, rough=1.0, blend=True, emit=2.5)
-    m_light = mat_glow("angel_collar_light", SKY_GLOW, 6.0)
+    m_light = mat_glow("angel_collar_light", GOLD_GLOW, 6.0)
 
     root = empty("Angel")
     body, lining = robe()
@@ -486,25 +488,39 @@ def build(scene):
     tilt = empty("Angel_RingTilt", (0, 0, 0), RING_TILT, parent=head)
     ring = empty("Angel_Ring", parent=tilt)
     R = EYE_R * 1.7
-    for i in range(12):
-        a = i / 12 * math.tau
-        p = Vector((math.cos(a) * R, math.sin(a) * R, 0))
-        # in ring space; turned outward and a little toward the front of the angel
-        front = Euler(RING_TILT).to_matrix().inverted() @ Vector((0, -1, 0))
-        look = (p.normalized() * 0.55 + front).normalized()
-        e = eyeball("Angel_RingEye_%02d" % i, EYE_R * 0.19, m_small, segs=24, rings=12, parent=ring, look=tuple(look))
-        e.location = p
-    # a thin band joining the ring eyes
+    er = EYE_R * 0.19                                     # ring eye radius
+    bh, bt = er * 2.3, 0.07                               # band height and wall thickness
     band = Mesh()
-    nb = 96
+    nb = 120
     for i in range(nb):
         a0, a1 = i / nb * math.tau, (i + 1) / nb * math.tau
-        for q in range(6):
-            q0, q1 = q / 6 * math.tau, (q + 1) / 6 * math.tau
-            def pt(a, q):
-                rr = R + 0.03 * math.cos(q)
-                return (math.cos(a) * rr, math.sin(a) * rr, 0.03 * math.sin(q))
-            band.add([pt(a0, q0), pt(a1, q0), pt(a1, q1), pt(a0, q1)], [(0, 1, 2, 3)], [SKY] * 4, smooth=True)
+        c0, s0, c1, s1 = math.cos(a0), math.sin(a0), math.cos(a1), math.sin(a1)
+        ro, ri, zb, zt = R, R - bt, -bh / 2, bh / 2
+        band.add([(c0 * ro, s0 * ro, zb), (c1 * ro, s1 * ro, zb), (c1 * ro, s1 * ro, zt), (c0 * ro, s0 * ro, zt)],
+                 [(0, 1, 2, 3)], [WHITE_SH, WHITE_SH, WHITE, WHITE], smooth=True)                      # outer face
+        band.add([(c1 * ri, s1 * ri, zb), (c0 * ri, s0 * ri, zb), (c0 * ri, s0 * ri, zt), (c1 * ri, s1 * ri, zt)],
+                 [(0, 1, 2, 3)], [WHITE_DEEP, WHITE_DEEP, WHITE_SH, WHITE_SH], smooth=True)            # inner face
+        band.add([(c0 * ri, s0 * ri, zt), (c0 * ro, s0 * ro, zt), (c1 * ro, s1 * ro, zt), (c1 * ri, s1 * ri, zt)],
+                 [(0, 1, 2, 3)], [SKY] * 4)                                                           # top rim
+        band.add([(c1 * ri, s1 * ri, zb), (c1 * ro, s1 * ro, zb), (c0 * ro, s0 * ro, zb), (c0 * ri, s0 * ri, zb)],
+                 [(0, 1, 2, 3)], [SKY_D] * 4)                                                         # bottom rim
+    for i in range(12):
+        a = i / 12 * math.tau
+        out = Vector((math.cos(a), math.sin(a), 0))
+        # half sunk into the outer face, looking straight out
+        e = eyeball("Angel_RingEye_%02d" % i, er, m_small, segs=24, rings=12, parent=ring, look=tuple(out))
+        e.location = out * R
+        # a sky blue socket around each eye
+        for q in range(24):
+            q0, q1 = q / 24 * math.tau, (q + 1) / 24 * math.tau
+            tang = Vector((-math.sin(a), math.cos(a), 0))
+            up = Vector((0, 0, 1))
+            def sp(qq, rr, lift):
+                return tuple(out * (R + lift) + (tang * math.cos(qq) + up * math.sin(qq)) * rr)
+            band.add([sp(q0, er * 1.0, 0.004), sp(q1, er * 1.0, 0.004), sp(q1, er * 1.18, 0.03), sp(q0, er * 1.18, 0.03)],
+                     [(0, 1, 2, 3)], [SKY] * 4, smooth=True)
+            band.add([sp(q0, er * 1.18, 0.03), sp(q1, er * 1.18, 0.03), sp(q1, er * 1.32, 0.004), sp(q0, er * 1.32, 0.004)],
+                     [(0, 1, 2, 3)], [SKY_D] * 4, smooth=True)
     obj_from(band, "Angel_RingBand", vcol, ring)
     s = EYE_R * 2.15                                      # the rays reach a little past the eye, not far
     halo = textured_mesh("Angel_Halo", [(-s, 0, -s), (s, 0, -s), (s, 0, s), (-s, 0, s)], [(0, 1, 2, 3)],
@@ -637,8 +653,8 @@ def render(scene, samples):
     rd = os.path.join(OUT, "renders")
     os.makedirs(rd, exist_ok=True)
     target = Vector((0, 0, 3.1))
-    for name, d, dist in (("front", (0, -1, 0.06), 12.5), ("three_quarter", (-0.75, -0.8, 0.1), 12.5),
-                          ("side", (-1, 0, 0.05), 12.5), ("back", (0.3, 1, 0.08), 12.5)):
+    for name, d, dist in (("front", (0, -1, 0.06), 15.5), ("three_quarter", (-0.75, -0.8, 0.1), 15.5),
+                          ("side", (-1, 0, 0.05), 15.5), ("back", (0.3, 1, 0.08), 15.5)):
         dv = Vector(d).normalized()
         cam.location = target + dv * dist
         cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
@@ -660,7 +676,7 @@ def render(scene, samples):
                 ob.location = (2.6, -1.4, -1.2)
         cam.data.lens = 40
         t3 = Vector((1.0, 0, 2.6))
-        cam.location = t3 + Vector((0.15, -1, 0.12)).normalized() * 13
+        cam.location = t3 + Vector((0.15, -1, 0.12)).normalized() * 15.5
         cam.rotation_euler = (t3 - cam.location).to_track_quat("-Z", "Y").to_euler()
         scene.render.filepath = os.path.join(rd, "angel_scale.jpg")
         bpy.ops.render.render(write_still=True)
