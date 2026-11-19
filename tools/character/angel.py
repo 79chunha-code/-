@@ -6,7 +6,7 @@
 - 몸: 다리가 안 보이는 긴 흰 로브, 종처럼 퍼진 밑단, 팔 없음, 깃과 밑단에 하늘색 테두리, 깃 안에서 하늘색 빛이 샘
 - 머리: 목 위에 떠 있는 사실적인 맨 눈알 (하늘색 홍채, 흰자에 엷은 핏줄). 눈알 지름과 몸(로브) 높이가 1:1
 - 토성처럼 누운 고리: 속이 빈 낮은 원통(띠)에 작은 눈알 12개가 반쯤 박혀 있음
-- 눈알 뒤에 빛살 원판 후광 (많이 퍼지지 않게). 후광과 깃 안의 빛은 금색, 몸과 눈은 하늘색
+- 눈알 뒤에서 뿜어지는 빛 (안개 속 조명처럼 밝은 중심과 굵기, 길이가 제각각인 빛줄기). 후광과 깃 안의 빛은 금색, 몸과 눈은 하늘색
 - 날개 세 쌍: 겹겹이 쌓인 둥근 깃털, 바깥쪽 큰 깃털에만 단순한 눈 무늬
   피해를 입으면 날개 눈이 하나씩 감김: 열린 눈(Angel_WingEyeOpen_*) 뒤에 감긴 눈(Angel_WingEyeClosed_*)이 있어서
   게임에서 열린 눈을 숨기면 속눈썹 달린 곡선이 드러난다
@@ -155,16 +155,31 @@ def wing_eye_texture(name, closed=False, w=128, h=64):
     return save_image(name, np.flipud(out), w, h)
 
 
-def halo_texture(name, s=512):
-    X, Y = np.meshgrid((np.arange(s) + 0.5) / s * 2 - 1, (np.arange(s) + 0.5) / s * 2 - 1)
+def halo_texture(name, s=1024, seed=21):
+    """Light bursting from behind the eye, like a lamp behind fingers in haze: a hot core with a wide bloom,
+    a few broad soft shafts with narrower ones between them, dark gaps, all fading out before the card's edge."""
+    rng = np.random.default_rng(seed)
+    X, Y = np.meshgrid((np.arange(s) + 0.5) / s * 2 - 1, (np.arange(s) + 0.5) / s * 2 - 1)   # Y is up
     r = np.hypot(X, Y)
     a = np.arctan2(Y, X)
-    disc = np.exp(-((r - 0.42) / 0.13) ** 2) * 0.9 + np.clip(1 - r / 0.62, 0, 1) * 0.35
-    rays = (0.5 + 0.5 * np.cos(a * 24)) ** 6 * np.clip((r - 0.4) / 0.08, 0, 1) * np.clip((0.86 - r) / 0.3, 0, 1)
-    rays2 = (0.5 + 0.5 * np.cos(a * 24 + np.pi)) ** 10 * np.clip((r - 0.45) / 0.08, 0, 1) * np.clip((0.7 - r) / 0.2, 0, 1)
-    alpha = np.clip(disc + rays * 0.8 + rays2 * 0.5, 0, 1)
-    t = np.clip(r / 0.85, 0, 1)[..., None]
-    col = lin([1.0, 0.97, 0.88]) * (1 - t) + lin([1.0, 0.76, 0.32]) * t
+    core = 1.2 * np.exp(-(r / 0.06) ** 2) + 0.75 * np.exp(-(r / 0.18) ** 2) + 0.25 * np.exp(-(r / 0.36) ** 2)
+    specs = []
+    for t in np.linspace(-0.25 * np.pi, 1.25 * np.pi, 8) + rng.uniform(-0.12, 0.12, 8):        # broad shafts
+        specs.append((t, rng.uniform(0.07, 0.15), rng.uniform(0.55, 0.9), rng.uniform(0.25, 0.45)))
+    for t in rng.uniform(-0.25 * np.pi, 1.25 * np.pi, 6):                                       # narrow ones
+        specs.append((t, rng.uniform(0.025, 0.05), rng.uniform(0.6, 1.0), rng.uniform(0.25, 0.5)))
+    for t in rng.uniform(-0.8 * np.pi, -0.2 * np.pi, 3):                                        # short, faint, downward
+        specs.append((t, rng.uniform(0.06, 0.12), rng.uniform(0.35, 0.5), rng.uniform(0.12, 0.22)))
+    beams = np.zeros_like(r)
+    for t, wid, length, gain in specs:
+        d = np.angle(np.exp(1j * (a - t)))
+        beams += np.exp(-(d / wid) ** 2) * np.exp(-r / length) * np.clip(r / 0.04, 0, 1) * gain
+    haze = 0.2 * np.exp(-r / 0.28)
+    e = np.clip((1.0 - r) / 0.45, 0, 1)
+    edge = e * e * (3 - 2 * e)
+    alpha = np.clip((core + beams + haze) * edge, 0, 1)
+    t = np.clip(r / 0.9, 0, 1)[..., None]
+    col = lin([1.0, 0.99, 0.95]) * (1 - t) + lin([1.0, 0.84, 0.55]) * t
     out = np.concatenate([col, alpha[..., None]], -1)
     return save_image(name, out, s, s)
 
@@ -522,7 +537,7 @@ def build(scene):
             band.add([sp(q0, er * 1.18, 0.03), sp(q1, er * 1.18, 0.03), sp(q1, er * 1.32, 0.004), sp(q0, er * 1.32, 0.004)],
                      [(0, 1, 2, 3)], [SKY_D] * 4, smooth=True)
     obj_from(band, "Angel_RingBand", vcol, ring)
-    s = EYE_R * 2.15                                      # the rays reach a little past the eye, not far
+    s = EYE_R * 3.2                                       # the beams reach well past the eye and fade out
     halo = textured_mesh("Angel_Halo", [(-s, 0, -s), (s, 0, -s), (s, 0, s), (-s, 0, s)], [(0, 1, 2, 3)],
                          [(0, 0), (1, 0), (1, 1), (0, 1)], m_halo, parent=head)
     halo.location = (0, EYE_R + 0.3, 0)
@@ -567,8 +582,9 @@ def animate(scene, root, head, ring, halo, wings):
         head.keyframe_insert("location", frame=f)
         ring.rotation_euler = (0, 0, t * math.tau)
         ring.keyframe_insert("rotation_euler", frame=f)
-        halo.rotation_euler = (0, t * math.tau / 24, 0)    # a slow turn by one ray's width
-        halo.keyframe_insert("rotation_euler", frame=f)
+        k = 1 + 0.035 * math.sin(t * math.tau * 2 + 0.5)   # the light breathes
+        halo.scale = (k, 1, k)
+        halo.keyframe_insert("scale", frame=f)
         for wob, name, side in wings:
             ph = {"Top": 0.0, "Mid": 1.1, "Low": 2.2}[name]
             beat = math.sin(t * math.tau * 2 - ph)
