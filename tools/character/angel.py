@@ -6,7 +6,9 @@
 - 몸: 다리가 안 보이는 긴 흰 로브, 종처럼 퍼진 밑단, 팔 없음, 깃과 밑단에 하늘색 테두리, 깃 안에서 하늘색 빛이 샘
 - 머리: 목 위에 떠 있는 사실적인 맨 눈알 (하늘색 홍채, 흰자에 엷은 핏줄). 눈알 지름과 몸(로브) 높이가 1:1
 - 토성처럼 누운 고리: 속이 빈 낮은 원통(띠)에 작은 눈알 12개가 반쯤 박혀 있음
-- 눈알 뒤에서 뿜어지는 빛 (안개 속 조명처럼 밝은 중심과 굵기, 길이가 제각각인 빛줄기). 후광과 깃 안의 빛은 금색, 몸과 눈은 하늘색
+- 눈알 뒤의 빛: 그림으로 그리지 않고 진짜 빛으로 둔다. Angel_HaloLight(빈 오브젝트)가 빛의 자리이고, 그 앞을 가리는
+  눈알, 고리의 눈알, 깃털 사이 틈으로 빛줄기가 새어 나온다 (손가락 사이로 새는 빛처럼). 게임에서는 이 자리에 조명과
+  빛줄기 효과를 단다. 렌더는 옅은 안개 속에 진짜 조명을 둬서 같은 모습을 낸다. 빛은 금색, 몸과 눈은 하늘색
 - 날개 세 쌍: 겹겹이 쌓인 둥근 깃털, 바깥쪽 큰 깃털에만 단순한 눈 무늬
   피해를 입으면 날개 눈이 하나씩 감김: 열린 눈(Angel_WingEyeOpen_*) 뒤에 감긴 눈(Angel_WingEyeClosed_*)이 있어서
   게임에서 열린 눈을 숨기면 속눈썹 달린 곡선이 드러난다
@@ -483,12 +485,10 @@ def build(scene):
     small_img = eyeball_texture("angel_small_eye", 256, 128, iris=0.55, pupil=0.24, veins=False, simple=True, seed=9)
     open_img = wing_eye_texture("angel_wing_eye_open")
     closed_img = wing_eye_texture("angel_wing_eye_closed", closed=True)
-    halo_img = halo_texture("angel_halo")
     m_eye = mat_image("angel_eye", eye_img, rough=0.18)
     m_small = mat_image("angel_small_eye", small_img, rough=0.25)
     m_open = mat_image("angel_wing_eye_open", open_img, rough=0.5, mask=True)
     m_closed = mat_image("angel_wing_eye_closed", closed_img, rough=0.5, mask=True)
-    m_halo = mat_image("angel_halo", halo_img, rough=1.0, blend=True, emit=2.5)
     m_light = mat_glow("angel_collar_light", GOLD_GLOW, 6.0)
 
     root = empty("Angel")
@@ -537,10 +537,8 @@ def build(scene):
             band.add([sp(q0, er * 1.18, 0.03), sp(q1, er * 1.18, 0.03), sp(q1, er * 1.32, 0.004), sp(q0, er * 1.32, 0.004)],
                      [(0, 1, 2, 3)], [SKY_D] * 4, smooth=True)
     obj_from(band, "Angel_RingBand", vcol, ring)
-    s = EYE_R * 3.2                                       # the beams reach well past the eye and fade out
-    halo = textured_mesh("Angel_Halo", [(-s, 0, -s), (s, 0, -s), (s, 0, s), (-s, 0, s)], [(0, 1, 2, 3)],
-                         [(0, 0), (1, 0), (1, 1), (0, 1)], m_halo, parent=head)
-    halo.location = (0, EYE_R + 0.3, 0)
+    # where the light behind the eye sits; its scale breathes (the engine reads it as the light's strength)
+    empty("Angel_HaloLight", (0, EYE_R + 0.35, 0), parent=head)
 
     # wings
     wing_objs = []
@@ -583,7 +581,7 @@ def animate(scene, root, head, ring, halo, wings):
         ring.rotation_euler = (0, 0, t * math.tau)
         ring.keyframe_insert("rotation_euler", frame=f)
         k = 1 + 0.035 * math.sin(t * math.tau * 2 + 0.5)   # the light breathes
-        halo.scale = (k, 1, k)
+        halo.scale = (k, k, k)
         halo.keyframe_insert("scale", frame=f)
         for wob, name, side in wings:
             ph = {"Top": 0.0, "Mid": 1.1, "Low": 2.2}[name]
@@ -612,7 +610,7 @@ def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     root, head, ring, wings, n_eyes = build(scene)
-    halo = bpy.data.objects["Angel_Halo"]
+    halo = bpy.data.objects["Angel_HaloLight"]
     animate(scene, root, head, ring, halo, wings)
     tris = sum(sum(len(p.vertices) - 2 for p in ob.data.polygons) for ob in scene.objects if ob.type == "MESH")
     print("TRIS", tris, "WING EYES", n_eyes)
@@ -630,16 +628,23 @@ def main():
         render(scene, o["samples"])
 
 
+HALO_W = float(os.environ.get("HALO_W", "8000"))
+QUICK = os.environ.get("QUICK") is not None
+HAZE = float(os.environ.get("HAZE", "0.07"))
+HALO_BACK = float(os.environ.get("HALO_BACK", "0.6"))
+HAZE_DEPTH = float(os.environ.get("HAZE_DEPTH", "5.0"))
+
+
 def render(scene, samples):
     scene.frame_set(0)
     world = bpy.data.worlds.new("w")
     scene.world = world
     world.use_nodes = True
     bg = world.node_tree.nodes["Background"]
-    bg.inputs[0].default_value = (*hexc("#5d7fb8"), 1)
-    bg.inputs[1].default_value = 0.8
+    bg.inputs[0].default_value = (*hexc("#26355a"), 1)      # dusk, so the light behind the eye reads
+    bg.inputs[1].default_value = 0.6
     sun = bpy.data.objects.new("sun", bpy.data.lights.new("sun", "SUN"))
-    sun.data.energy = 3.0
+    sun.data.energy = 1.6
     sun.data.angle = math.radians(6)
     sun.rotation_euler = (math.radians(48), math.radians(-12), math.radians(-30))
     scene.collection.objects.link(sun)
@@ -650,9 +655,36 @@ def render(scene, samples):
     for ob in scene.objects:                               # the angel floats a little off the floor
         if ob.name == "Angel":
             ob.location.z = 0.0
+    # the light behind the eye, in a thin haze: the eye, the ring's eyes and the feathers cut it into shafts
+    bpy.context.view_layer.update()
+    # a small lamp close behind the eye: the eye hides its centre, and the light that slips past the eye's rim is cut
+    # into shafts by the ring's eyes and the feathers, fanning out wide like light between fingers held over a lamp
+    lamp = bpy.data.objects.new("halo_lamp", bpy.data.lights.new("halo_lamp", "POINT"))
+    lamp.data.energy = HALO_W
+    lamp.data.shadow_soft_size = 0.02
+    lamp.data.color = (1.0, 0.86, 0.6)
+    scene.collection.objects.link(lamp)
+    lamp.location = bpy.data.objects["Angel_HaloLight"].matrix_world.translation + Vector((0, HALO_BACK, 0))
+    if hasattr(sun.data, "volume_factor"):
+        sun.data.volume_factor = 0.0                       # only the angel's light shows in the haze
+    # haze only around the angel, so a long stretch of lit fog toward the camera does not wash the shafts out
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0.6, 3.6))
+    dom = bpy.context.active_object
+    dom.name = "haze"
+    dom.scale = (18, HAZE_DEPTH, 13)
+    hm = bpy.data.materials.new("haze")
+    hm.use_nodes = True
+    nt = hm.node_tree
+    nt.nodes.remove(nt.nodes["Principled BSDF"])
+    vol = nt.nodes.new("ShaderNodeVolumePrincipled")
+    vol.inputs["Density"].default_value = HAZE
+    vol.inputs["Anisotropy"].default_value = 0.55          # light scatters forward, toward the camera in front
+    nt.links.new(vol.outputs[0], nt.nodes["Material Output"].inputs["Volume"])
+    dom.data.materials.append(hm)
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
     scene.cycles.samples = samples
+    scene.cycles.volume_bounces = 0
     scene.render.resolution_x, scene.render.resolution_y = 1000, 1100
     scene.render.image_settings.file_format = "JPEG"
     vs = scene.view_settings
@@ -669,13 +701,19 @@ def render(scene, samples):
     rd = os.path.join(OUT, "renders")
     os.makedirs(rd, exist_ok=True)
     target = Vector((0, 0, 3.1))
-    for name, d, dist in (("front", (0, -1, 0.06), 15.5), ("three_quarter", (-0.75, -0.8, 0.1), 15.5),
-                          ("side", (-1, 0, 0.05), 15.5), ("back", (0.3, 1, 0.08), 15.5)):
+    views = (("front", (0, -1, 0.06), 15.5), ("three_quarter", (-0.75, -0.8, 0.1), 15.5),
+             ("side", (-1, 0, 0.05), 15.5), ("back", (0.3, 1, 0.08), 15.5))
+    if QUICK:
+        scene.render.resolution_x, scene.render.resolution_y = 500, 550
+        views = views[:1]
+    for name, d, dist in views:
         dv = Vector(d).normalized()
         cam.location = target + dv * dist
         cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
         scene.render.filepath = os.path.join(rd, "angel_" + name + ".jpg")
         bpy.ops.render.render(write_still=True)
+    if QUICK:
+        return
     # the eye up close
     cam.data.lens = 85
     t2 = Vector((0, 0, EYE_Z))

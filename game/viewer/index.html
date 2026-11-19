@@ -126,6 +126,67 @@ body { background: var(--bar-solid); color: var(--text); font: 400 13px/1.4 var(
     });
   }
 
+  // ---------- light behind the angel's eye ----------
+  // The light is not painted: a glowing source sits at Angel_HaloLight, the angel is drawn in black in front of it,
+  // and the light is smeared outward from the source. What the eye, the ring's eyes and the feathers cover becomes
+  // the dark gaps between the shafts, like a lamp seen through fingers. It follows the ring and the wings as they move.
+  const rays = { on: false, node: null, eyeR: 1, rt: null };
+  const RAY_SIZE = +(new URLSearchParams(location.search).get("raysize") || 2.4);       // source diameter in eye radii
+  const RAY_EXPOSURE = +(new URLSearchParams(location.search).get("rayexp") || 0.8);
+  const rayBlack = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const raySrc = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: (() => { const c = document.createElement("canvas"); c.width = c.height = 128; const g = c.getContext("2d");
+      const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, "#fffaf0"); gr.addColorStop(0.62, "rgba(255,236,196,1)");
+      gr.addColorStop(0.82, "rgba(255,214,150,0.55)"); gr.addColorStop(1, "rgba(255,200,130,0)"); g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+      return new THREE.CanvasTexture(c); })(), depthWrite: false, transparent: true }));
+  raySrc.layers.set(1); scene.add(raySrc);
+  const rayQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+    uniforms: { tOcc: { value: null }, lightPos: { value: new THREE.Vector2(0.5, 0.5) }, exposure: { value: RAY_EXPOSURE },
+      decay: { value: 0.972 }, density: { value: 0.9 }, weight: { value: 0.22 } },
+    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+    fragmentShader: [
+      "uniform sampler2D tOcc; uniform vec2 lightPos; uniform float exposure, decay, density, weight; varying vec2 vUv;",
+      "void main(){ vec2 tc = vUv; vec2 d = (tc - lightPos) * (density / 90.0); float k = 1.0; vec3 c = vec3(0.0);",
+      "  for (int i = 0; i < 90; i++) { tc -= d; c += texture2D(tOcc, tc).rgb * k * weight; k *= decay; }",
+      "  gl_FragColor = vec4(c * exposure, 1.0); }"].join("\n"),
+    blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true }));
+  const rayScene = new THREE.Scene(), rayCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  rayScene.add(rayQuad);
+  function raysFor(root) {
+    rays.node = root ? root.getObjectByName("Angel_HaloLight") : null;
+    rays.on = !!rays.node;
+    raySrc.visible = rays.on;
+    if (rays.on) {
+      const eye = root.getObjectByName("Angel_Eye");
+      if (eye && eye.geometry) { eye.geometry.computeBoundingSphere(); rays.eyeR = eye.geometry.boundingSphere.radius; }
+    }
+  }
+  function renderRays() {
+    const w = Math.max(1, renderer.domElement.width >> 1), h = Math.max(1, renderer.domElement.height >> 1);
+    if (!rays.rt || rays.rt.width !== w || rays.rt.height !== h) {
+      if (rays.rt) rays.rt.dispose();
+      rays.rt = new THREE.WebGLRenderTarget(w, h);
+    }
+    const p = new THREE.Vector3(); rays.node.getWorldPosition(p);
+    const sc = new THREE.Vector3(); rays.node.getWorldScale(sc);
+    raySrc.position.copy(p); raySrc.scale.setScalar(rays.eyeR * RAY_SIZE * sc.x);
+    const v = p.clone().project(cam);
+    if (v.z > 1) return;                                     // the light is behind the camera
+    const bg = scene.background, fog = scene.fog, envm = scene.environment, sv = sky.visible, fv = floor.visible;
+    scene.background = null; scene.fog = null; scene.environment = null; sky.visible = false; floor.visible = false;
+    renderer.setRenderTarget(rays.rt);
+    renderer.setClearColor(0x000000, 1); renderer.clear();
+    scene.overrideMaterial = rayBlack; renderer.render(scene, cam);     // everything in front of the light, in black
+    scene.overrideMaterial = null;
+    renderer.autoClear = false; cam.layers.set(1); renderer.render(scene, cam);   // the light itself, hidden where covered
+    cam.layers.set(0); renderer.autoClear = true;
+    renderer.setRenderTarget(null);
+    scene.background = bg; scene.fog = fog; scene.environment = envm; sky.visible = sv; floor.visible = fv;
+    const u = rayQuad.material.uniforms;
+    u.tOcc.value = rays.rt.texture; u.lightPos.value.set((v.x + 1) / 2, (v.y + 1) / 2);
+    renderer.autoClear = false; renderer.render(rayScene, rayCam); renderer.autoClear = true;
+  }
+
   function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
   addEventListener("resize", resize); resize();
 
@@ -174,6 +235,7 @@ body { background: var(--bar-solid); color: var(--text); font: 400 13px/1.4 var(
       if (token !== loadToken) return;
       if (world) scene.remove(world);
       world = root; scene.add(world); world.updateMatrixWorld(true);
+      raysFor(world);
       // what you can stand on: everything except sky, far backdrop, cloth and loose plants
       ground = [];
       world.traverse((o) => { if (o.isMesh && !/Cloud|Backdrop|Mountains|Bunting|GroundCover|Trees|Forest$|Water/.test(o.name + "|" + (o.parent && o.parent.name))) ground.push(o); });
@@ -335,6 +397,7 @@ body { background: var(--bar-solid); color: var(--text); font: 400 13px/1.4 var(
     if (world && world.userData.mixer) world.userData.mixer.update(dt);
     sky.position.copy(cam.position);
     renderer.render(scene, cam);
+    if (rays.on && world) renderRays();
     requestAnimationFrame(tick);
   }
   function start() {
