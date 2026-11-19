@@ -128,7 +128,7 @@ def build():
     # ---------- head (no face) and neck ----------
     lathe(body, [(1.27, 0.02, 0.02, SKIN_SH), (1.285, 0.075, 0.07, SKIN_SH), (1.315, 0.115, 0.108, SKIN), (1.355, 0.138, 0.13, SKIN),
                  (1.40, 0.146, 0.138, SKIN), (1.45, 0.146, 0.14, SKIN), (1.50, 0.132, 0.128, SKIN), (1.54, 0.10, 0.098, SKIN),
-                 (1.565, 0.055, 0.055, SKIN), (1.572, 0.01, 0.01, SKIN)], 32)
+                 (1.565, 0.055, 0.055, SKIN), (1.572, 0.01, 0.01, SKIN)], 16)
     lathe(body, [(1.17, 0.045, 0.043, SKIN_SH), (1.30, 0.042, 0.04, SKIN)], 10, cap0=False)
 
     # ---------- hair: a round bob, open at the face ----------
@@ -158,8 +158,8 @@ def build():
         hair.add(V, F, C, smooth=True)
 
     # locks of hair: wide at the root, tapering to a soft point, different lengths, narrow gaps between
-    LOCKS = [(0.0, 0.11, 0.034), (0.11, 0.22, 0.04), (0.29, 0.43, 0.052), (0.43, 0.57, 0.04),
-             (0.57, 0.71, 0.046), (0.71, 0.85, 0.036), (0.85, 1.0, 0.03)]
+    LOCKS = [(0.0, 0.11, 0.04), (0.11, 0.22, 0.052), (0.29, 0.43, 0.075), (0.43, 0.57, 0.055),
+             (0.57, 0.71, 0.062), (0.71, 0.85, 0.046), (0.85, 1.0, 0.036)]
 
     def lock(u, depth, root=1.465):
         # a strip of hair: steep sides, a blunt rounded end, only a slight taper
@@ -274,61 +274,6 @@ def build():
     return {"Rota_Body": body, "Rota_Cloth": cloth, "Rota_Hair": hair, "Rota_Leather": leather}
 
 
-# ---------- face: hand-drawn pixel eyes on a thin shell over the front of the head ----------
-FACE_PNG = os.path.join(OUT, "rota_face.png")
-FACE_CELL = 0.302 / 60          # the drawn face is 60 cells tall, from the top of the skull to the chin
-FACE_TOP = 1.558                # a little below the skull top, so the eyes sit low on the face and clear of the fringe
-
-
-def head_surface_y(x, z, out=0.0008):
-    rx = head_r(z)
-    ry = rx * 0.948
-    k = max(0.0, 1 - (x / rx) ** 2)
-    return -(ry + out) * math.sqrt(k)
-
-
-def face_decal(collection=None):
-    if not os.path.exists(FACE_PNG):
-        return None
-    x0, x1, z0, z1, nx, nz = -0.105, 0.105, 1.345, 1.43, 28, 10
-    V, F, UV = [], [], []
-    for j in range(nz + 1):
-        for i in range(nx + 1):
-            x = x0 + (x1 - x0) * i / nx
-            z = z0 + (z1 - z0) * j / nz
-            V.append((x, head_surface_y(x, z), z))
-            UV.append(((x / FACE_CELL + 32) / 64, 1 - ((FACE_TOP - z) / FACE_CELL) / 64))
-    for j in range(nz):
-        for i in range(nx):
-            a = j * (nx + 1) + i
-            F.append((a, a + nx + 1, a + nx + 2, a + 1))        # faces outward (-Y)
-    me = bpy.data.meshes.new("Rota_Face")
-    me.from_pydata(V, [], F)
-    uv = me.uv_layers.new(name="UVMap")
-    for poly in me.polygons:
-        for li in poly.loop_indices:
-            uv.data[li].uv = UV[me.loops[li].vertex_index]
-    me.update()
-    mat = bpy.data.materials.new("rota_face")
-    mat.use_nodes = True
-    nt = mat.node_tree
-    bsdf = nt.nodes.get("Principled BSDF")
-    tex = nt.nodes.new("ShaderNodeTexImage")
-    tex.image = bpy.data.images.load(FACE_PNG)
-    tex.interpolation = "Closest"                              # keep the drawn cells crisp
-    tex.extension = "CLIP"
-    rnd = nt.nodes.new("ShaderNodeMath")
-    rnd.operation = "ROUND"                                    # exported as an alpha cut-out
-    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-    nt.links.new(tex.outputs["Alpha"], rnd.inputs[0])
-    nt.links.new(rnd.outputs[0], bsdf.inputs["Alpha"])
-    bsdf.inputs["Roughness"].default_value = 0.6
-    me.materials.append(mat)
-    ob = bpy.data.objects.new("Rota_Face", me)
-    (collection or bpy.context.scene.collection).objects.link(ob)
-    return ob
-
-
 # ---------- scene ----------
 def material():
     mat = bpy.data.materials.new("village_vcol")
@@ -363,7 +308,6 @@ def main():
         ob.data.materials.append(mat)
         obs.append(ob)
         tris += m.tri_count()
-    face_decal()
     print("TRIS", tris)
     os.makedirs(OUT, exist_ok=True)
     if o["export"]:
