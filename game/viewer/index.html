@@ -76,6 +76,7 @@ body { background: var(--bar-solid); color: var(--text); font: 400 13px/1.4 var(
     { id: "plateau", name: "천사의 고원", repo: "../../assets/mountain/plateau.glb" },
     { id: "summit", name: "정상", repo: "../../assets/mountain/summit.glb" },
     { id: "rota", name: "로타", repo: "../../assets/characters/rota.glb", model: true },
+    { id: "angel", name: "천사", repo: "../../assets/characters/angel.glb", model: true },
   ];
   const EYE = 1.6, STEP = 0.7;
   const touch = matchMedia("(pointer: coarse)").matches;
@@ -137,7 +138,12 @@ body { background: var(--bar-solid); color: var(--text); font: 400 13px/1.4 var(
       let root = cache.get(z.id);
       if (!root) {
         const buf = await modelBytes(z);
-        root = await new Promise((ok, fail) => new THREE.GLTFLoader().parse(buf, "", (g) => ok(g.scene), fail));
+        const g = await new Promise((ok, fail) => new THREE.GLTFLoader().parse(buf, "", ok, fail));
+        root = g.scene;
+        if (g.animations && g.animations.length) {           // a model's idle loop plays on its own
+          root.userData.mixer = new THREE.AnimationMixer(root);
+          g.animations.forEach((clip) => root.userData.mixer.clipAction(clip).play());
+        }
         cache.set(z.id, root);
       }
       if (token !== loadToken) return;
@@ -299,6 +305,7 @@ body { background: var(--bar-solid); color: var(--text); font: 400 13px/1.4 var(
   function tick(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (world && mode === "walk") walk(dt); else orbit.update();
+    if (world && world.userData.mixer) world.userData.mixer.update(dt);
     sky.position.copy(cam.position);
     renderer.render(scene, cam);
     requestAnimationFrame(tick);
