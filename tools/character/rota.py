@@ -1,6 +1,7 @@
 """로타 3D 모델 (얼굴 없는 버전, 4.5등신, T자 자세). 설정화: docs/refs/rota_tpose_color.jpg
 
     blender -b --factory-startup -P tools/character/rota.py -- [--export] [--render] [--samples N]
+    ARMS=down blender ... -- --export   (팔을 내린 전투용 assets/characters/rota_down.glb)
 
 좌표: +X 로타의 왼손 쪽, -Y 앞(얼굴이 보는 쪽), +Z 위. 단위 미터, 발바닥이 z=0.
 마을과 같은 정점 색 재질(village_vcol)을 쓴다.
@@ -87,6 +88,9 @@ SKIRTS = {
     # swells out round and tucks back in at the hem
     "round": [(0.645, 0.178, 0.135), (0.665, 0.205, 0.158), (0.70, 0.222, 0.17), (0.75, 0.222, 0.168), (0.80, 0.205, 0.152), (0.845, 0.175, 0.128)],
 }
+# ARMS: "t" keeps the arms straight out as drawn; "down" lets them hang for the battle (saved as rota_down.glb)
+ARMS = os.environ.get("ARMS", "t")
+ARM_DROP = 68 if ARMS == "down" else 0          # degrees below horizontal
 TUNIC = SKIRTS[ROBE] + [  # z, rx, ry : the tunic's outline from hem to neck
     (0.90, 0.157, 0.112), (1.00, 0.152, 0.106),
     (1.10, 0.165, 0.110), (1.165, 0.168, 0.104), (1.20, 0.075, 0.066)]
@@ -251,9 +255,9 @@ def build():
         leather.box((0.04, 0.06, 0.095), BROWN, M=M, grad=0.8)
         leather.box((0.044, 0.064, 0.03), BROWN_L, M=M @ T(0, 0, 0.075), grad=0.9)
 
-    # ---------- arms in a T: puffy short sleeve, white undersleeve, brown cuffs, mitten hands ----------
+    # ---------- arms in a T (or hanging, see ARMS): puffy short sleeve, white undersleeve, brown cuffs, mitten hands ----------
     for s in (-1, 1):
-        A = T(s * 0.13, 0, 1.115) @ R("Y", s * 90)                  # local z runs out along the arm
+        A = T(s * 0.13, 0, 1.115) @ R("Y", s * (90 + ARM_DROP))     # local z runs out along the arm
         lathe(cloth, [(0.0, 0.062, 0.066, WHITE), (0.05, 0.07, 0.072, WHITE), (0.12, 0.066, 0.068, WHITE), (0.155, 0.058, 0.06, WHITE_SH)], 12, M=A)
         lathe(leather, [(0.148, 0.061, 0.063, BROWN), (0.175, 0.059, 0.061, BROWN_D)], 12, M=A)      # sleeve cuff
         lathe(cloth, [(0.17, 0.042, 0.044, WHITE), (0.29, 0.04, 0.042, WHITE_SH), (0.30, 0.042, 0.044, WHITE_SH),
@@ -313,8 +317,9 @@ def main():
     if o["export"]:
         for ob in scene.objects:
             ob.select_set(ob.type == "MESH")
-        bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, "rota.glb"), export_format="GLB", use_selection=True, export_yup=True, export_apply=True)
-        print("EXPORTED", os.path.getsize(os.path.join(OUT, "rota.glb")) // 1024, "KB")
+        name = "rota.glb" if ARMS == "t" else "rota_down.glb"
+        bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, name), export_format="GLB", use_selection=True, export_yup=True, export_apply=True)
+        print("EXPORTED", name, os.path.getsize(os.path.join(OUT, name)) // 1024, "KB")
     if o["render"]:
         render(scene, o["samples"])
 
