@@ -60,22 +60,24 @@ body { background: var(--night); color: #f6f8ff; -webkit-user-select: none; user
   if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(boot); else boot();
 
 function start() {
-  // The simulation runs on the floor in logical units (the box B is 360 x 232 of them); MS turns them into metres.
-  // The angel hangs above the point (MX, AY), 5.4 m behind the box's centre, and never moves from there.
+  // The simulation runs on the floor in logical units; MS turns them into metres. The fight takes the stone circle in the
+  // middle of the plateau: centre (MX, BCY) at the world origin, radius RA. The angel hangs over the point (MX, AY),
+  // toward the arch at the far side, and never moves from there; Rota cannot come closer to that point than EXR.
   const FH = 270, CW = 480, TAU = Math.PI * 2;
   let FW = CW, OX = 0;
   const Q = new URLSearchParams(location.search);
-  const qv = (k, d) => (Q.has(k) ? Q.get(k).split(",").map(Number) : d);
-  const B = { x: 276, y: 196, w: 360, h: 232 };
-  const MX = B.x + B.w / 2, BCY = B.y + B.h / 2;
   const MS = 0.024;
-  const AY = BCY - +(Q.get("ay") || 145);
+  const MX = 0, BCY = 0;
+  const RA = +(Q.get("arena") || 11.5) / MS, EXR = 2.2 / MS;
+  const AY = BCY - +(Q.get("ay") || 7.2) / MS;
+  const START_D = 8 / MS;                             // each turn Rota starts this far in front of the angel
   const LIFT = +(Q.get("lift") || 2.3);              // how high the angel's hem floats above the floor, metres
   const G = 62, AHIT = 64, PMAX = 6, ENDURE = 10, ENDURE_FINAL = 15;
   const wx = (x) => (x - MX) * MS, wz = (y) => (y - BCY) * MS;
   const lx = (X) => MX + X / MS, ly = (Z) => BCY + Z / MS;
   const EXPO = +(Q.get("expo") || 0.85), ENV = +(Q.get("env") || 0.9);
-  const CAM = { pos: qv("cam", [0, 4.4, 9.6]), look: qv("look", [0, 3.1, -3.0]), fov: +(Q.get("fov") || 58) };
+  // the camera follows Rota from behind, on the line from the angel through Rota, looking past Rota at the angel
+  const CAM = { back: +(Q.get("camb") || 6.8), up: +(Q.get("camh") || 4.6), ahead: +(Q.get("cama") || 3.5), lookY: +(Q.get("camy") || 1.6), fov: +(Q.get("fov") || 58) };
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -266,7 +268,7 @@ function start() {
   };
 
   // ---------- State ----------
-  const P = { x: MX, y: B.y + B.h * 0.72, hp: PMAX, inv: 0, focus: false, face: Math.PI, moving: 0 };
+  const P = { x: MX, y: AY + START_D, hp: PMAX, inv: 0, focus: false, face: Math.PI, moving: 0 };
   const A = { x: MX, y: AY, hp: 100, ghost: 100, ghostT: 0, flash: 0, dying: 0, jolt: 0 };
   let L = [], texts = [], shadows = [], timers = [];
   let state = "loading", overlay = null, simT = 0, freeze = 0, shake = 0, impact = 0, lastImpact = -9, loadPct = 0, loadErr = "";
@@ -279,6 +281,7 @@ function start() {
   // AW holds world positions taken from the model each frame (metres); the patterns read them to know where a light leaves from.
   const AW = { eye: new THREE.Vector3(0, LIFT + 3.7, -5.4), eyeR: 1.2, root: new THREE.Vector3(0, LIFT, -5.4), ring: new THREE.Vector3(), ringN: new THREE.Vector3(0, 1, 0), ringR: 2.04 };
   const RING_IDLE = TAU / 14;
+  let angelYaw = 0;
   let ringPhase = 0, ringW = RING_IDLE, ringWant = RING_IDLE, wingRaise = 0, wingRaiseWant = 0, eyeAim = null, glance = 0, glanceCd = 6;
   // the ring's twelve eyes throw thin rays across the floor; st 0 off, 1 warning (harmless), 2 live
   const RAYS = { st: 0, show: 0, ox: MX, oy: AY, dirs: Array.from({ length: 12 }, () => ({ ux: 0, uy: 1 })) };
@@ -293,11 +296,28 @@ function start() {
     L.push({ k: "orb", x: sx, y: sy, h: src.y - Y0, air: { sx, sy, sh: src.y - Y0, tx, ty, t: 0, T: flight }, vx: (dx / d) * speed, vy: (dy / d) * speed, r: r || 7, best: 0, struck: false, fade: 0 });
     sfx.drop();
   }
+  // a point near (x, y) moved inside the circle and out of the angel's reach
+  function inArena(x, y, m) {
+    m = m || 12;
+    let dx = x - MX, dy = y - BCY, d = Math.hypot(dx, dy) || 1;
+    if (d > RA - m) { x = MX + (dx / d) * (RA - m); y = BCY + (dy / d) * (RA - m); }
+    dx = x - A.x; dy = y - A.y; d = Math.hypot(dx, dy) || 1;
+    if (d < EXR + m) { x = A.x + (dx / d) * (EXR + m); y = A.y + (dy / d) * (EXR + m); }
+    return [x, y];
+  }
+  // a point within r of Rota, mostly on the side the camera can see (toward the angel and to the sides)
+  const nearRota = (r) => { const a = Math.atan2(A.y - P.y, A.x - P.x) + rnd(-1.9, 1.9), q = Math.sqrt(Math.random()) * r; return inArena(P.x + Math.cos(a) * q, P.y + Math.sin(a) * q); };
+  // how far a line from (ox, oy) along (ux, uy) runs before it leaves the circle
+  function reach(ox, oy, ux, uy) { const a = ox - MX, b = oy - BCY, p = a * ux + b * uy, c = a * a + b * b - RA * RA; return -p + Math.sqrt(Math.max(0, p * p - c)); }
+  const rotaDist = () => Math.hypot(P.x - A.x, P.y - A.y);
   const activeBeam = () => L.find((s) => s.k === "beam" && !s.fade);
-  // the central eye looks at a strip of floor; after aimT a wide beam lands there and sweeps to x1 over fireT
-  function halfSweep(onLeft, aimT, fireT, sparkEvery) {
-    const w = 84, x0 = onLeft ? B.x + w / 2 - 4 : B.x + B.w - w / 2 + 4, x1 = MX + (onLeft ? 6 : -6);
-    L.push({ k: "beam", x: x0, x0, x1, w, t: 0, aimT, fireT, ph: 0, fade: 0, spark: 0, sparkEvery: sparkEvery || 0.3 });
+  // The central eye looks at the floor beside Rota; the fan of floor it will sweep flickers; after aimT a wide beam
+  // lands on one edge of the fan and sweeps across it over fireT. The fan is about arcM metres wide where Rota stands.
+  function sectorSweep(aimed, arcM, aimT, fireT, sparkEvery) {
+    const d = rotaDist(), ra = Math.atan2(P.y - A.y, P.x - A.x), width = clamp(arcM / MS / Math.max(d, 1), 0.45, 1.7);
+    const c = ra + (aimed ? rnd(-0.15, 0.15) : rnd(-0.5, 0.5)) * width, dir = Math.random() < 0.5 ? 1 : -1;
+    const a0 = c - (dir * width) / 2, a1 = c + (dir * width) / 2;
+    L.push({ k: "beam", a: a0, a0, a1, w: 84, t: 0, aimT, fireT, ph: 0, fade: 0, spark: 0, sparkEvery: sparkEvery || 0.3 });
     sfx.charge();
   }
   function lighthouseRun(T, dt, lvl, k) {
@@ -316,14 +336,15 @@ function start() {
   }
   // a light rolled outward down the gap between two rays
   function gapOrb(sp) {
-    const d = RAYS.dirs, ok = [];
+    const d = RAYS.dirs, ra = Math.atan2(P.y - RAYS.oy, P.x - RAYS.ox), ok = [];
     for (let i = 0; i < 12; i++) {
       const a = d[i], b = d[(i + 1) % 12], mx = a.ux + b.ux, my = a.uy + b.uy, m = Math.hypot(mx, my);
-      if (m > 0.2 && my / m > 0.4) ok.push([mx / m, my / m]);
+      const off = Math.abs((((Math.atan2(my, mx) - ra + Math.PI) % TAU) + TAU) % TAU - Math.PI);
+      if (m > 0.2 && off < 1.1) ok.push([mx / m, my / m]);       // only the gaps on Rota's side
     }
     if (!ok.length) return;
-    const [ux, uy] = ok[Math.floor(Math.random() * ok.length)], s = (B.y + 3 - RAYS.oy) / uy, x = RAYS.ox + ux * s;
-    if (x > B.x + 6 && x < B.x + B.w - 6) orb(x, B.y + 3, ux * sp, uy * sp, 7);
+    const [ux, uy] = ok[Math.floor(Math.random() * ok.length)], s = EXR + 10;
+    orb(RAYS.ox + ux * s, RAYS.oy + uy * s, ux * sp, uy * sp, 7);
   }
   function eyelidsStart(T) {
     // every open eye on the wings shuts, then they all open at once
@@ -344,22 +365,19 @@ function start() {
       const e = ANG.wEyes[T.seq[T.k++ % T.seq.length]];
       if (e.shut || e.blink > 0) continue;
       const aimed = ++T.n % 2 === 0;
-      const tx = aimed ? clamp(P.x + rnd(-60, 60), B.x + 10, B.x + B.w - 10) : rnd(B.x + 10, B.x + B.w - 10);
-      const ty = aimed ? clamp(P.y + rnd(-50, 15), B.y + 10, B.y + B.h - 30) : rnd(B.y + 10, B.y + B.h * 0.75);
+      const [tx, ty] = nearRota(aimed ? 60 : 230);
       drop(e.wpos, tx, ty, 0.95 - 0.1 * lvl, 70 + 18 * lvl, 7);
       e.fire = 1;
       break;
     }
   }
   function featherFall(lvl) {
-    const w = ANG.wings[Math.floor(Math.random() * ANG.wings.length)], src = w.pw.clone().lerp(w.tw, rnd(0.3, 1));
-    const aimed = Math.random() < 0.3;
-    const tx = aimed ? clamp(P.x + rnd(-40, 40), B.x + 12, B.x + B.w - 12) : rnd(B.x + 12, B.x + B.w - 12);
-    const ty = aimed ? clamp(P.y + rnd(-30, 30), B.y + 12, B.y + B.h - 12) : rnd(B.y + 12, B.y + B.h - 12);
-    const sx = lx(src.x), sy = ly(src.z);
-    L.push({ k: "feather", sx, sy, sh: src.y - Y0, tx, ty, x: sx, y: sy, h: src.y - Y0, t: 0, T: rnd(3.3, 4.3) - 0.3 * lvl, ph: rnd(0, TAU), gold: Math.random() < 0.2 + 0.1 * lvl, rest: 0, fade: 0, spin: rnd(-1, 1) });
+    // shed from the wings high above, they drift down over Rota, coming from the angel's side
+    const [tx, ty] = nearRota(Math.random() < 0.3 ? 40 : 240), ax = A.x - tx, ay = A.y - ty, ad = Math.hypot(ax, ay) || 1, back = rnd(60, 130);
+    const sx = tx + (ax / ad) * back + rnd(-30, 30), sy = ty + (ay / ad) * back + rnd(-30, 30), sh = rnd(7.5, 9);
+    L.push({ k: "feather", sx, sy, sh, tx, ty, x: sx, y: sy, h: sh, t: 0, T: rnd(3.3, 4.3) - 0.3 * lvl, ph: rnd(0, TAU), gold: Math.random() < 0.2 + 0.1 * lvl, rest: 0, fade: 0, spin: rnd(-1, 1) });
   }
-  const eyeFront = () => AW.eye.clone().add(new THREE.Vector3(0, -0.3, AW.eyeR * 0.9));
+  const eyeFront = () => AW.eye.clone().add(new THREE.Vector3(Math.sin(angelYaw) * AW.eyeR * 0.9, -0.3, Math.cos(angelYaw) * AW.eyeR * 0.9));
 
   // ---------- Patterns ----------
   // Each pattern: name, dur, omen (menu text before it), hint (shown while it runs if the journal was read),
@@ -369,29 +387,28 @@ function start() {
     gaze: {
       name: "시선", dur: 10.5,
       omen: "가운데 눈이 천천히 고원을 내려다본다.",
-      hint: "눈이 먼저 쳐다본 쪽으로 빛이 쓸고 온다. <b>반대쪽으로</b> 건너가기.",
+      hint: "눈이 쳐다본 쪽 바닥이 <b>부채꼴로 깜빡인다.</b> 빛이 그 부채꼴을 쓸고 가니 밖으로 나가기.",
       page: ["그 눈이 보는 곳에 빛이 떨어진다네.", "눈이 먼저 움직이니, <b>눈을 보게.</b>", "빛줄기에서 튄 불티가 자네 발밑을 지나갈 때, 그림자가 천사를 향해 선다네."],
-      start(T) { T.cd = 0.7; T.side = Math.random() < 0.5; },
+      start(T) { T.cd = 0.7; },
       update(T, dt, lvl) {
         if (activeBeam()) return;
         T.cd -= dt; if (T.cd > 0 || T.t > T.dur - 2.2) return;
         T.cd = 0.3;
-        // early on the eye does not care where Rota stands; once it is hurt it looks for Rota's half
-        const left = A.hp <= 60 || lvl >= 1 ? P.x < MX : (T.side = !T.side);
-        halfSweep(left, [1.15, 0.95, 0.8][lvl], [1.0, 0.85, 0.75][lvl], [0.32, 0.24, 0.2][lvl]);
+        // early on the eye does not aim well; once it is hurt it looks straight at Rota's side
+        sectorSweep(A.hp <= 60 || lvl >= 1, 7 + 1.2 * lvl, [1.15, 0.95, 0.8][lvl], [1.0, 0.85, 0.75][lvl], [0.32, 0.24, 0.2][lvl]);
       },
     },
     lighthouse: {
       name: "등대", dur: 10.5,
       omen: "고리의 눈 열두 개가 일제히 바깥을 향한다.",
-      hint: "빛줄기는 천사에게서 멀수록 틈이 넓다. <b>앞쪽</b>에서 틈을 따라 돌기.",
+      hint: "빛줄기는 천사에게서 멀수록 틈이 넓다. <b>멀리 서서</b> 틈을 따라 돌기.",
       page: ["고리가 돌면 빛도 돈다네.", "천사 가까이는 틈이 좁고, 멀어질수록 넓어지지. <b>멀리 서게.</b>", "고리가 멈칫할 때가 있네. 그때 숨을 고르게."],
       update(T, dt, lvl) { if (T.t > T.dur - 0.5) { RAYS.st = 0; return; } lighthouseRun(T, dt, lvl, 1); },
     },
     eyelids: {
       name: "눈꺼풀", dur: 10,
       omen: "날개의 눈들이 한꺼번에 감긴다. 무언가를 기다리듯.",
-      hint: "빛이 떨어질 자리에 <b>금빛 고리</b>가 먼저 생긴다. 떨어진 빛은 앞으로 미끄러진다.",
+      hint: "빛이 떨어질 자리에 <b>금빛 고리</b>가 먼저 생긴다. 떨어진 빛은 천사 반대쪽으로 미끄러진다.",
       page: ["날개의 눈은 저마다 빛을 하나씩 떨군다네.", "떨어질 자리가 먼저 빛나니, <b>고리를 보고 비키게.</b>", "감긴 눈은 쏘지 못하네. 천사가 다칠수록 빛이 성겨질 걸세."],
       start(T) { eyelidsStart(T); },
       update(T, dt, lvl) { if (T.t < T.dur - 1.2) eyelidsRun(T, dt, lvl, 1); },
@@ -416,8 +433,12 @@ function start() {
       start(T) {
         // where the eye's shadow falls each time the light settles: first away from Rota, then somewhere else again
         const pick = (from) => {
-          for (let i = 0; i < 30; i++) { const x = rnd(B.x + 75, B.x + B.w - 75), y = rnd(B.y + 70, B.y + B.h - 60); if (Math.hypot(x - from[0], y - from[1]) > 150) return [x, y]; }
-          return [MX, BCY];
+          for (let i = 0; i < 40; i++) {
+            // ahead of where Rota will be, or to its side, where the camera can see it
+            const a = Math.atan2(A.y - from[1], A.x - from[0]) + rnd(-1.4, 1.4), q = rnd(150, 260), x = from[0] + Math.cos(a) * q, y = from[1] + Math.sin(a) * q;
+            if (Math.hypot(x - MX, y - BCY) < RA - 80 && Math.hypot(x - A.x, y - A.y) > EXR + 90) return [x, y];
+          }
+          return inArena(from[0], from[1], 80);
         };
         const s0 = pick([P.x, P.y]), s1 = pick(s0), s2 = pick(s1);
         T.plan = [[2.6, "gather", s0], [5.1, "burn", s0], [6.2, "move", s1], [8.7, "burn", s1], [9.8, "move", s2], [11.1, "burn", s2], [99, "end", s2]];
@@ -440,7 +461,7 @@ function start() {
         SHADE.lit = kind === "gather" ? 0.12 + 0.2 * k : kind === "burn" ? 0.95 : kind === "move" ? 0.3 : Math.max(0, SHADE.lit - dt * 2);
         SHADE.burn = kind === "burn" ? 1 : 0;
         // later on, motes of light still fall from the eye into the shadow
-        if (lvl >= 1 && kind === "burn") { T.cd = (T.cd ?? 0.5) - dt; if (T.cd <= 0) { T.cd = 0.9 - 0.2 * (lvl - 1); drop(eyeFront(), clamp(x + rnd(-50, 50), B.x + 10, B.x + B.w - 10), clamp(y + rnd(-40, 40), B.y + 10, B.y + B.h - 10), 0.9, 50, 7); } }
+        if (lvl >= 1 && kind === "burn") { T.cd = (T.cd ?? 0.5) - dt; if (T.cd <= 0) { T.cd = 0.9 - 0.2 * (lvl - 1); drop(eyeFront(), ...inArena(x + rnd(-50, 50), y + rnd(-40, 40)), 0.9, 50, 7); } }
       },
     },
     final: {
@@ -453,7 +474,7 @@ function start() {
         if (T.t > T.dur - 0.8) { RAYS.st = 0; return; }
         T.lh.t += dt; lighthouseRun(T.lh, dt, 0, 0.65);
         eyelidsRun(T.el, dt, 0, 0.42);
-        T.gz -= dt; if (T.gz <= 0 && !activeBeam()) { T.gz = 4.4; halfSweep(P.x < MX, 0.95, 1.0, 0.5); }
+        T.gz -= dt; if (T.gz <= 0 && !activeBeam()) { T.gz = 4.4; sectorSweep(true, 7, 0.95, 1.0, 0.5); }
       },
     },
   };
@@ -499,14 +520,14 @@ function start() {
       prefix = "가운데 눈이 처음으로 로타를 본다.";
     }
     say(prefix + "\n" + PATTERNS[nextKey].omen);
-    P.x = MX; P.y = B.y + B.h * 0.72; P.inv = 0;
+    P.x = MX; P.y = AY + START_D; P.inv = 0;
     wantFocus = "actFight";
   }
   function startPattern(withTele) {
     snap = { hp: P.hp, j: jUses, s: sUses, ahp: A.hp };
     pat = PATTERNS[nextKey]; T = { t: 0, dur: pat.dur, lvl: nextKey === "final" ? 1 : levelFor() };
     tele = withTele; turnHits = 0; combo = 0; penAcc = 0;
-    P.x = MX; P.y = B.y + B.h * 0.72; P.inv = 0.6;
+    P.x = MX; P.y = AY + START_D; P.inv = 0.6;
     state = "pattern";
     if (pat.start) pat.start(T, T.lvl);
     sayNow(withTele ? pat.hint : "빛을 피하세요. <b>가까이 스치면</b> 그림자가 생겨요.");
@@ -589,9 +610,9 @@ function start() {
   addEventListener("pointermove", (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     if (state === "pattern" && freeze <= 0) {
-      // the floor is seen at an angle, so a finger's drag maps to roughly 1.6 logical units per screen pixel
-      const k = 1.6 / cssPx * 1.1, dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k * 1.5;
-      if (rot) { P.x += dy / 1.5; P.y -= dx * 1.5; } else { P.x += dx; P.y += dy; }
+      // up the screen is toward the angel, across the screen is around it
+      const k = 1.6 / cssPx * 1.1, dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k * 1.4;
+      if (rot) moveBy(dy / 1.4, -dx * 1.4); else moveBy(dx, dy);
     }
     drag.x = e.clientX; drag.y = e.clientY;
   });
@@ -658,8 +679,13 @@ function start() {
     const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; }
     P.focus = keys.has("ShiftLeft") || keys.has("ShiftRight");
     const sp = P.focus ? 95 : 205;
-    P.x += mx * sp * dt; P.y += my * sp * dt;
+    moveBy(mx * sp * dt, my * sp * dt);
     P.inv = Math.max(0, P.inv - dt);
+  }
+  // ax: to the right as the camera sees it (around the angel), ay: away from the angel. Both in logical units.
+  function moveBy(ax, ay) {
+    const dx = P.x - A.x, dy = P.y - A.y, th = Math.atan2(dy, dx), d = Math.max(1, Math.hypot(dx, dy) + ay), t = th - ax / d;
+    P.x = A.x + Math.cos(t) * d; P.y = A.y + Math.sin(t) * d;
   }
 
   // The shadow test for the light behind the angel. The eye is a ball, the ring a circle with a thick rim, the robe a
@@ -698,7 +724,7 @@ function start() {
   }
 
   function physics(dt) {
-    P.x = clamp(P.x, B.x + 8, B.x + B.w - 8); P.y = clamp(P.y, B.y + 8, B.y + B.h - 8);
+    [P.x, P.y] = inArena(P.x, P.y, 8);
     shadows = [];
     const live = state === "pattern" && A.hp > 0;
     const keep = [];
@@ -710,14 +736,18 @@ function start() {
         if (ft < 0) s.ph = 0;
         else if (ft < s.fireT) {
           if (s.ph === 0) { sfx.beam(); if (!reduceMotion) shake = Math.max(shake, 0.1); }
-          s.ph = 1; const e = ft / s.fireT; s.x = s.x0 + (s.x1 - s.x0) * (e * e * (3 - 2 * e));
-          // sparks thrown ahead of the beam, toward the safe half
+          s.ph = 1; const e = ft / s.fireT; s.a = s.a0 + (s.a1 - s.a0) * (e * e * (3 - 2 * e));
+          // sparks thrown ahead of the beam, out of the fan
           s.spark -= dt;
-          if (s.spark <= 0 && live) { s.spark = s.sparkEvery; const dir = Math.sign(s.x1 - s.x0); orb(s.x + dir * s.w * 0.3, rnd(B.y + 6, B.y + 50), dir * rnd(60, 95), rnd(55, 95), 6); }
-        } else if (ft < s.fireT + 0.25) { s.ph = 2; s.x = s.x1; }
+          if (s.spark <= 0 && live) {
+            s.spark = s.sparkEvery;
+            const ux = Math.cos(s.a), uy = Math.sin(s.a), dir = Math.sign(s.a1 - s.a0), lo = EXR + 30, q = rnd(lo, Math.max(lo + 10, Math.min(reach(A.x, A.y, ux, uy) - 20, rotaDist() + 120))), sp = rnd(60, 95);
+            orb(A.x + ux * q, A.y + uy * q, -uy * dir * sp + ux * 20, ux * dir * sp + uy * 20, 6);
+          }
+        } else if (ft < s.fireT + 0.25) { s.ph = 2; s.a = s.a1; }
         else if (!s.fade) s.fade = 0.3;
         keep.push(s);
-        if (live && s.ph >= 1 && !s.fade && Math.abs(P.x - s.x) < s.w / 2 - 2) hurt();
+        if (live && s.ph >= 1 && !s.fade) { const vx = P.x - A.x, vy = P.y - A.y, ux = Math.cos(s.a), uy = Math.sin(s.a); if (vx * ux + vy * uy > 0 && Math.abs(vx * uy - vy * ux) < s.w / 2 - 2) hurt(); }
         continue;
       }
       if (s.k === "feather") {
@@ -726,7 +756,7 @@ function start() {
         s.x = s.sx + (s.tx - s.sx) * e + Math.sin(s.t * 2.3 + s.ph) * 16 * k; s.y = s.sy + (s.ty - s.sy) * e; s.h = s.sh * (1 - k);
         if (k >= 1) {
           if (s.gold) {                       // a gold feather bursts into slow lights when it lands
-            if (s.x > B.x && s.x < B.x + B.w && s.y > B.y && s.y < B.y + B.h) { const o = rnd(0, TAU); for (let i = 0; i < 5; i++) { const a = o + (i / 5) * TAU; orb(s.x, s.y, Math.cos(a) * 62, Math.sin(a) * 62, 6); } sfx.pop(); }
+            if (Math.hypot(s.x - MX, s.y - BCY) < RA) { const o = rnd(0, TAU); for (let i = 0; i < 5; i++) { const a = o + (i / 5) * TAU; orb(s.x, s.y, Math.cos(a) * 62, Math.sin(a) * 62, 6); } sfx.pop(); }
             continue;
           }
           s.rest = 1.2; s.h = 0.02;
@@ -743,7 +773,7 @@ function start() {
         keep.push(s); continue;               // harmless until it lands
       }
       s.x += s.vx * dt; s.y += s.vy * dt;
-      if (s.x < B.x - 24 || s.x > B.x + B.w + 24 || s.y < B.y - 30 || s.y > B.y + B.h + 30) continue;
+      if (Math.hypot(s.x - MX, s.y - BCY) > RA + 24) continue;
       keep.push(s);
       if (!live || s.fade) continue;
       const dx = P.x - s.x, dy = P.y - s.y, d = Math.hypot(dx, dy) || 0.001;
@@ -763,7 +793,7 @@ function start() {
     L = keep;
     if (live && RAYS.st === 2) {
       const vx = P.x - RAYS.ox, vy = P.y - RAYS.oy;
-      for (const d of RAYS.dirs) if (vx * d.ux + vy * d.uy > 0 && Math.abs(vx * d.uy - vy * d.ux) < RAY_W) { hurt(); break; }
+      for (const d of RAYS.dirs) if (vx * d.ux + vy * d.uy > EXR * 0.9 && Math.abs(vx * d.uy - vy * d.ux) < RAY_W) { hurt(); break; }
     }
     if (live && SHADE.on) {
       const m = shadeMargin(wx(P.x), wz(P.y));
@@ -780,7 +810,7 @@ function start() {
   const _q = new THREE.Quaternion(), _qr = new THREE.Quaternion(), _v = new THREE.Vector3(), YAX = new THREE.Vector3(0, 1, 0);
   function ringRays() {
     // each ring eye's ray runs along the floor in the direction the eye faces, from the point under the ring
-    _qr.setFromAxisAngle(YAX, ringPhase); _q.copy(ANG.tiltQ).multiply(_qr);
+    _qr.setFromAxisAngle(YAX, ringPhase); _q.copy(angelHold.quaternion).multiply(ANG.tiltQ).multiply(_qr);
     ANG.ringLocal.forEach((p, i) => { _v.copy(p).applyQuaternion(_q); const m = Math.hypot(_v.x, _v.z) || 1; RAYS.dirs[i].ux = _v.x / m; RAYS.dirs[i].uy = _v.z / m; });
     RAYS.ox = lx(AW.ring.x); RAYS.oy = ly(AW.ring.z);
   }
@@ -793,13 +823,14 @@ function start() {
       T.t += dt; pat.update(T, dt, T.lvl);
       if (T.t >= pat.dur && state === "pattern") endTurn();
     } else if (state === "intro") {
-      introT -= dt; if (introT <= 0 && ANG.root) { introT = 0.5; const e = ANG.wEyes[Math.floor(Math.random() * ANG.wEyes.length)]; drop(e.wpos, rnd(B.x + 14, B.x + B.w - 14), rnd(B.y + 14, B.y + B.h * 0.6), 1.0, 60, 7); e.fire = 1; }
+      introT -= dt; if (introT <= 0 && ANG.root) { introT = 0.5; const e = ANG.wEyes[Math.floor(Math.random() * ANG.wEyes.length)]; drop(e.wpos, ...nearRota(260), 1.0, 60, 7); e.fire = 1; }
     }
     if (SHADE.on) placeShadeLight();
     physics(dt);
     // where the central eye looks: at a beam's floor if one is aimed, else at Rota once it cares, else up and away
     const bm = activeBeam();
-    eyeAim = bm ? { x: bm.ph === 0 ? bm.x0 : bm.x, y: BCY + 30 } : SHADE.burn ? { x: SHADE.sx, y: SHADE.sy } : null;
+    if (bm) { const a = bm.ph === 0 ? bm.a0 : bm.a, q = clamp(rotaDist(), EXR * 1.5, reach(A.x, A.y, Math.cos(a), Math.sin(a)) * 0.8); eyeAim = { x: A.x + Math.cos(a) * q, y: A.y + Math.sin(a) * q }; }
+    else eyeAim = SHADE.burn ? { x: SHADE.sx, y: SHADE.sy } : null;
     if (A.hp <= 60 && !finaleSeen) { glanceCd -= dt; if (glanceCd <= 0) { glance = 1.3; glanceCd = rnd(5, 8); } }
     glance = Math.max(0, glance - dt);
     const mvx = P.x - lastPX, mvy = P.y - lastPY; lastPX = P.x; lastPY = P.y;
@@ -870,18 +901,16 @@ function start() {
 
   // the stage: a light fence the angel raises around Rota
   const arena = add(new THREE.Group());
-  const AX0 = wx(B.x), AX1 = wx(B.x + B.w), AZ0 = wz(B.y), AZ1 = wz(B.y + B.h);
+  const AR = RA * MS;                                  // the circle's radius in metres
   function buildArena() {
     arena.position.y = Y0;
-    const w = AX1 - AX0, d = AZ1 - AZ0;
-    const wash = floorPlane(w, d, basic("#0a0e36", { opacity: 0.5 })); wash.position.y = 0.01; arena.add(wash);
-    const fm = bright("#ffe2a0", { alphaMap: fenceTex, opacity: 0.6, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    const lm = bright("#fff4cc", { opacity: 0.95 });
+    const wash = new THREE.Mesh(new THREE.CircleGeometry(AR, 96), basic("#0a0e36", { opacity: 0.32 }));
+    wash.rotation.x = -Math.PI / 2; wash.position.y = 0.01; wash.renderOrder = 1; arena.add(wash);
     const FH3 = 0.42;
-    [[0, AZ0, w, 0], [0, AZ1, w, 0], [AX0, 0, d, 1], [AX1, 0, d, 1]].forEach(([x, z, len, side]) => {
-      const f = new THREE.Mesh(new THREE.PlaneGeometry(len, FH3), fm); f.position.set(x, FH3 / 2, z); if (side) f.rotation.y = Math.PI / 2; f.renderOrder = 6; arena.add(f);
-      const l = floorPlane(side ? 0.05 : len + 0.05, side ? len + 0.05 : 0.05, lm, 2); l.position.set(x, 0.02, z); arena.add(l);
-    });
+    const fence = new THREE.Mesh(new THREE.CylinderGeometry(AR, AR, FH3, 160, 1, true), bright("#ffe2a0", { alphaMap: fenceTex, opacity: 0.6, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    fence.position.y = FH3 / 2; fence.renderOrder = 6; arena.add(fence);
+    const line = new THREE.Mesh(new THREE.RingGeometry(AR - 0.03, AR + 0.03, 160), bright("#fff4cc", { opacity: 0.95, side: THREE.DoubleSide }));
+    line.rotation.x = -Math.PI / 2; line.position.y = 0.02; line.renderOrder = 2; arena.add(line);
   }
 
   // ---------- Rota ----------
@@ -948,7 +977,7 @@ function start() {
     ANG.mixer = new THREE.AnimationMixer(root);
     // the idle loop plays on its own, except the ring, which the patterns turn
     g.animations.forEach((clip) => { if (clip.name !== "Angel_Ring") ANG.mixer.clipAction(clip).play(); });
-    angelHold.position.set(0, Y0 + LIFT, wz(AY));
+    angelHold.position.set(0, Y0 + LIFT, wz(AY)); angelHold.rotation.y = angelYaw;
     angelHold.updateMatrixWorld(true);
     readAngel();
   }
@@ -984,7 +1013,7 @@ function start() {
     });
     for (const e of ANG.wEyes) { e.wpos.copy(e.c); e.open.localToWorld(e.wpos); }
   }
-  const _qe = new THREE.Quaternion(), _t = new V3();
+  const _qe = new THREE.Quaternion(), _qi = new THREE.Quaternion(), _t = new V3();
   function updateAngel(dt) {
     ANG.mixer.update(dt);
     ANG.ring.quaternion.setFromAxisAngle(YAX, ringPhase);
@@ -994,13 +1023,20 @@ function start() {
     A.jolt = Math.max(0, A.jolt - dt * 2.5);
     const j = reduceMotion ? 0 : A.jolt * 0.25;
     angelHold.position.set(rnd(-j, j), Y0 + LIFT - dying * 1.2 + rnd(-j, j), wz(AY));
+    // the whole angel turns slowly to face Rota; once it has really looked at Rota, it turns faster
+    if (state !== "victory" && state !== "won") {
+      let dy = Math.atan2(wx(P.x) - wx(A.x), wz(P.y) - wz(A.y)) - angelYaw; dy = ((dy + Math.PI) % TAU + TAU) % TAU - Math.PI;
+      const rate = (finaleSeen ? 1.1 : 0.55) * dt; angelYaw += clamp(dy, -rate, rate);
+    }
+    angelHold.rotation.y = angelYaw;
     angelHold.visible = state !== "won";
     angelHold.updateMatrixWorld(true);
     // the central eye
     if (eyeAim) _t.set(wx(eyeAim.x), Y0, wz(eyeAim.y));
     else if (finaleSeen || glance > 0) _t.set(wx(P.x), Y0 + 0.9, wz(P.y));
     else _t.set(AW.eye.x + Math.sin(simT * 0.17) * 10, AW.eye.y + 7 + Math.sin(simT * 0.29) * 2, AW.eye.z + 5);   // up and away
-    _t.sub(AW.eye).normalize(); if (_t.z < 0.2) { _t.z = 0.2; _t.normalize(); }
+    _t.sub(AW.eye).normalize().applyQuaternion(_qi.copy(angelHold.quaternion).invert());     // into the angel's own frame
+    if (_t.z < 0.2) { _t.z = 0.2; _t.normalize(); }
     _qe.setFromUnitVectors(ZAX, _t);
     ANG.eye.quaternion.slerp(_qe, 1 - Math.exp(-dt * (eyeAim ? 7 : finaleSeen || glance > 0 ? 5 : 1.4)));
     // the wing eyes: blink, shut, flash when they let a light fall
@@ -1023,7 +1059,8 @@ function start() {
     haloL.position.copy(_w); haloL.intensity = 5 * op * (0.75 + 0.25 * A.hp / 100);
   }
   const WHITE = new THREE.Color(1, 1, 1);
-  const angelShadow = add(floorPlane(3.6, 2.4, basic("#0b0d2c", { alphaMap: softTex, opacity: 0.55 }), 3));
+  // the angel's shadow on the floor marks the ground under it that Rota cannot walk into
+  const angelShadow = add(floorPlane(EXR * MS * 2.3, EXR * MS * 2.3, basic("#0b0d2c", { alphaMap: softTex, opacity: 0.55 }), 3));
   const angelRing = add(new THREE.Mesh(new THREE.RingGeometry(AHIT * MS - 0.05, AHIT * MS, 48), basic("#ffd257", { opacity: 0 })));
   angelRing.rotation.x = -Math.PI / 2; angelRing.renderOrder = 4;
 
@@ -1111,48 +1148,63 @@ function start() {
     for (const [x, z] of cs) { a[o++] = x; a[o++] = y; a[o++] = z; }
     m.geometry.attributes.position.needsUpdate = true; m.visible = true;
   }
-  const beamV = { sheet: mkSheet("#ffd88a"), strip: mkStrip("#ffe2a0", 5), core: mkStrip("#fffbe6", 6), aim: mkStrip("#ffc040", 5, true), e0: mkStrip("#fff1b0", 6, true), e1: mkStrip("#fff1b0", 6, true) };
+  const beamV = { sheet: mkSheet("#ffd88a"), strip: mkStrip("#ffe2a0", 5), core: mkStrip("#fffbe6", 6), e0: mkStrip("#fff1b0", 6, true) };
+  // the fan of floor a beam is about to sweep: from the angel's feet out to the edge of the circle
+  const FAN_N = 28;
+  const fan = (() => {
+    const g = new THREE.BufferGeometry(), idx = [];
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array((FAN_N + 2) * 3), 3));
+    for (let i = 0; i < FAN_N; i++) idx.push(0, i + 1, i + 2);
+    g.setIndex(idx);
+    const m = add(new THREE.Mesh(g, glowMat("#ffc040", null, { opacity: 0, side: THREE.DoubleSide }))); m.frustumCulled = false; m.renderOrder = 4; m.visible = false; return m;
+  })();
+  function setFan(a0, a1, y) {
+    const p = fan.geometry.attributes.position.array;
+    p[0] = wx(A.x); p[1] = y; p[2] = wz(A.y);
+    for (let i = 0; i <= FAN_N; i++) {
+      const a = a0 + ((a1 - a0) * i) / FAN_N, ux = Math.cos(a), uy = Math.sin(a), r = reach(A.x, A.y, ux, uy);
+      p[(i + 1) * 3] = wx(A.x + ux * r); p[(i + 1) * 3 + 1] = y; p[(i + 1) * 3 + 2] = wz(A.y + uy * r);
+    }
+    fan.geometry.attributes.position.needsUpdate = true; fan.visible = true;
+  }
+  // a strip of floor along (ux, uy) from (ox, oy), between distances s0 and s1, hw wide on each side (logical units in, metres out)
+  function radialQuad(ox, oy, ux, uy, s0, s1, hw) {
+    const nx = -uy, ny = ux;
+    return [[wx(ox + ux * s0 - nx * hw), wz(oy + uy * s0 - ny * hw)], [wx(ox + ux * s0 + nx * hw), wz(oy + uy * s0 + ny * hw)],
+      [wx(ox + ux * s1 + nx * hw), wz(oy + uy * s1 + ny * hw)], [wx(ox + ux * s1 - nx * hw), wz(oy + uy * s1 - ny * hw)]];
+  }
   // a ray's sheet is faint and fades toward the ring, so the line on the floor is what you read
   const rayV = Array.from({ length: 12 }, () => ({ sheet: mkSheet("#ffd88a", 0.05, 1), strip: mkStrip("#fff1c4", 5) }));
   const _ap = new V3();
-  // where a ray from (ox, oy) along (ux, uy) is inside the box: [s_in, s_out] or null
-  function clipRay(ox, oy, ux, uy) {
-    let s0 = 0, s1 = 2000;
-    const sl = (o, u, lo, hi) => { if (Math.abs(u) < 1e-6) return o >= lo && o <= hi; let a = (lo - o) / u, b = (hi - o) / u; if (a > b) [a, b] = [b, a]; s0 = Math.max(s0, a); s1 = Math.min(s1, b); return s0 < s1; };
-    return sl(ox, ux, B.x, B.x + B.w) && sl(oy, uy, B.y, B.y + B.h) ? [s0, s1] : null;
-  }
   function syncBeams(dt) {
     const bm = L.find((s) => s.k === "beam" && !s.fade) || L.find((s) => s.k === "beam");
-    const hideB = () => { beamV.sheet.visible = beamV.strip.visible = beamV.core.visible = beamV.aim.visible = beamV.e0.visible = beamV.e1.visible = false; };
+    const hideB = () => { beamV.sheet.visible = beamV.strip.visible = beamV.core.visible = beamV.e0.visible = fan.visible = false; };
     if (!bm) hideB();
     else {
-      const f = bm.fade ? clamp(bm.fade / 0.3, 0, 1) : 1, z0 = AZ0, z1 = AZ1, hw = (bm.w / 2) * MS;
-      _ap.copy(AW.eye).addScaledVector(ANG.eye ? _t.set(0, 0, 1).applyQuaternion(ANG.eye.quaternion) : _t.set(0, 0, 1), AW.eyeR * 0.95);
+      const f = bm.fade ? clamp(bm.fade / 0.3, 0, 1) : 1, hw = bm.w / 2, s0 = EXR * 0.8;
+      _ap.copy(AW.eye).addScaledVector(_t.set(0, 0, 1).applyQuaternion(ANG.eye.getWorldQuaternion(_q)), AW.eyeR * 0.95);
       if (bm.ph === 0) {
-        // aiming: the floor strip where it will land fills in and flickers, its edges bright, a faint line of sight runs to it
-        const k = clamp(bm.t / bm.aimT, 0, 1), x = wx(bm.x0), fl = Math.floor(simT * 12) % 2 ? 1 : 0.55, ew = 0.035;
-        setQuad(beamV.aim, [[x - hw, z0], [x + hw, z0], [x + hw, z1], [x - hw, z1]], Y0 + 0.03);
-        setOp(beamV.aim, (0.12 + 0.28 * k) * fl);
-        [-1, 1].forEach((sd, i) => { const m = i ? beamV.e1 : beamV.e0, ex = x + sd * hw; setQuad(m, [[ex - ew, z0], [ex + ew, z0], [ex + ew, z1], [ex - ew, z1]], Y0 + 0.035); setOp(m, 0.95 * fl); });
-        setQuad(beamV.sheet, [[x - 0.05, z0], [x + 0.05, z0], [x + 0.05, z1], [x - 0.05, z1]], Y0 + 0.03, _ap); setOp(beamV.sheet, 0.08 + 0.12 * k);
+        // aiming: the fan it will sweep flickers, the edge it starts from is bright, a faint line of sight runs to it
+        const k = clamp(bm.t / bm.aimT, 0, 1), fl = Math.floor(simT * 12) % 2 ? 1 : 0.55, ux = Math.cos(bm.a0), uy = Math.sin(bm.a0), r = reach(A.x, A.y, ux, uy);
+        setFan(bm.a0, bm.a1, Y0 + 0.03); setOp(fan, (0.2 + 0.3 * k) * fl);
+        setQuad(beamV.e0, radialQuad(A.x, A.y, ux, uy, s0, r, 3), Y0 + 0.035); setOp(beamV.e0, 0.95 * fl);
+        setQuad(beamV.sheet, radialQuad(A.x, A.y, ux, uy, s0, r, 2), Y0 + 0.03, _ap); setOp(beamV.sheet, 0.08 + 0.12 * k);
         beamV.strip.visible = beamV.core.visible = false;
       } else {
-        const x = wx(bm.x);
-        beamV.aim.visible = beamV.e0.visible = beamV.e1.visible = false;
-        setQuad(beamV.sheet, [[x - hw, z0], [x + hw, z0], [x + hw, z1], [x - hw, z1]], Y0 + 0.03, _ap); setOp(beamV.sheet, 0.4 * f);
-        setQuad(beamV.strip, [[x - hw * 1.25, z0], [x + hw * 1.25, z0], [x + hw * 1.25, z1], [x - hw * 1.25, z1]], Y0 + 0.035); setOp(beamV.strip, 0.95 * f);
-        setQuad(beamV.core, [[x - hw * 0.6, z0], [x + hw * 0.6, z0], [x + hw * 0.6, z1], [x - hw * 0.6, z1]], Y0 + 0.04); setOp(beamV.core, 1 * f);
+        const ux = Math.cos(bm.a), uy = Math.sin(bm.a), r = reach(A.x, A.y, ux, uy);
+        fan.visible = beamV.e0.visible = false;
+        setQuad(beamV.sheet, radialQuad(A.x, A.y, ux, uy, s0, r, hw), Y0 + 0.03, _ap); setOp(beamV.sheet, 0.4 * f);
+        setQuad(beamV.strip, radialQuad(A.x, A.y, ux, uy, s0, r, hw * 1.25), Y0 + 0.035); setOp(beamV.strip, 0.95 * f);
+        setQuad(beamV.core, radialQuad(A.x, A.y, ux, uy, s0, r, hw * 0.6), Y0 + 0.04); setOp(beamV.core, 1 * f);
       }
     }
     // the ring's rays
     RAYS.show += ((RAYS.st === 2 ? 1 : RAYS.st === 1 ? 0.35 : 0) - RAYS.show) * Math.min(1, dt * (RAYS.st === 2 ? 14 : 5));
     const ringQ = ANG.ring ? ANG.ring.getWorldQuaternion(_q) : null;
     RAYS.dirs.forEach((d, i) => {
-      const v = rayV[i], cl = RAYS.show > 0.02 && ANG.root ? clipRay(RAYS.ox, RAYS.oy, d.ux, d.uy) : null;
-      if (!cl || d.uy < -0.05) { v.sheet.visible = v.strip.visible = false; return; }
-      const hw = RAY_W * (RAYS.st === 2 ? 1.6 : 0.8), nx = -d.uy, ny = d.ux;
-      const ax = RAYS.ox + d.ux * cl[0], ay = RAYS.oy + d.uy * cl[0], bx = RAYS.ox + d.ux * cl[1], by_ = RAYS.oy + d.uy * cl[1];
-      const cs = [[wx(ax - nx * hw), wz(ay - ny * hw)], [wx(ax + nx * hw), wz(ay + ny * hw)], [wx(bx + nx * hw), wz(by_ + ny * hw)], [wx(bx - nx * hw), wz(by_ - ny * hw)]];
+      const v = rayV[i];
+      if (RAYS.show <= 0.02 || !ANG.root) { v.sheet.visible = v.strip.visible = false; return; }
+      const hw = RAY_W * (RAYS.st === 2 ? 1.6 : 0.8), cs = radialQuad(RAYS.ox, RAYS.oy, d.ux, d.uy, EXR * 0.9, reach(RAYS.ox, RAYS.oy, d.ux, d.uy), hw);
       setQuad(v.strip, cs, Y0 + 0.035);
       setOp(v.strip, RAYS.st === 2 ? 1 : 0.35 * (Math.floor(simT * 10 + i) % 2 ? 1 : 0.5));
       // the sheet starts at the ring eye itself
@@ -1189,7 +1241,7 @@ function start() {
       "  c = mix(c, vec3(1.0, 0.98, 0.9), rim * 0.7 * on); a = max(a, rim * 0.8 * on);",
       "  gl_FragColor = vec4(c, a); }"].join("\n"),
     transparent: true, depthWrite: false });
-  const shadeFloor = add(floorPlane(AX1 - AX0, AZ1 - AZ0, shadeMat, 3));
+  const shadeFloor = add(new THREE.Mesh(new THREE.CircleGeometry(AR, 96), shadeMat)); shadeFloor.rotation.x = -Math.PI / 2; shadeFloor.renderOrder = 3;
   const sunGlow = add(new THREE.Sprite(new THREE.SpriteMaterial({ toneMapped: false, map: glowTex, color: col("#ffe4a8"), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false })));
   sunGlow.renderOrder = 2;
   function syncShade(dt) {
@@ -1251,7 +1303,7 @@ function start() {
     scene.overrideMaterial = null;
     renderer.autoClear = false; cam.layers.set(1); renderer.render(scene, cam); cam.layers.set(0);   // the light, hidden where covered
     scene.fog = fog; sky.visible = sv;
-    const u = blurQuad.material.uniforms, fe = new V3(0, Y0, wz(B.y)).project(cam);
+    const u = blurQuad.material.uniforms, fe = new V3(wx(A.x), Y0, wz(A.y)).project(cam);
     u.tOcc.value = rtOcc.texture; u.lightPos.value.set((v.x + 1) / 2, (v.y + 1) / 2); u.exposure.value = RAY_EXP * life * (1 + 0.8 * burnK); u.maskY.value = (fe.y + 1) / 2;
     renderer.setRenderTarget(rtRay); renderer.clear(); renderer.render(blurScene, quadCam);
     renderer.setRenderTarget(null);
@@ -1406,10 +1458,26 @@ function start() {
     }
   }
 
+  // The camera stands behind Rota on the line from the angel through Rota and looks past Rota at the angel, so the angel
+  // is always ahead and high. It swings round after Rota a little late, which keeps it steady while Rota circles.
+  const camDir = { x: 0, y: -1 }, camPos = new V3(), camLook = new V3(), _c = new V3();
+  let camInit = false;
+  function placeCamera(dt) {
+    const fx = A.x - P.x, fy = A.y - P.y, fd = Math.hypot(fx, fy) || 1, k = camInit ? 1 - Math.exp(-dt * 3) : 1;
+    camDir.x += (fx / fd - camDir.x) * k; camDir.y += (fy / fd - camDir.y) * k;
+    const m = Math.hypot(camDir.x, camDir.y) || 1, dx = camDir.x / m, dz = camDir.y / m, rx = wx(P.x), rz = wz(P.y);
+    const kp = camInit ? 1 - Math.exp(-dt * 6) : 1;
+    camPos.lerp(_c.set(rx - dx * CAM.back, Y0 + CAM.up, rz - dz * CAM.back), kp);
+    camLook.lerp(_c.set(rx + dx * CAM.ahead, Y0 + CAM.lookY, rz + dz * CAM.ahead), kp);
+    camInit = true;
+    const sh = shake > 0.005 ? shake : 0;
+    cam.position.set(camPos.x + rnd(-sh, sh), camPos.y + rnd(-sh, sh), camPos.z + rnd(-sh, sh));
+    cam.lookAt(camLook);
+  }
   function render3D(dt) {
-    if (!ANG.root) { cam.position.set(CAM.pos[0], CAM.pos[1], CAM.pos[2]); cam.lookAt(CAM.look[0], CAM.look[1], CAM.look[2]); renderer.render(scene, cam); return; }
+    if (!ANG.root) { placeCamera(dt); renderer.render(scene, cam); return; }
     updateAngel(dt);
-    angelShadow.position.set(AW.root.x, Y0 + 0.03, AW.root.z + 0.3); angelShadow.material.opacity = 0.55 * (1 - clamp(A.dying / 2.6, 0, 1));
+    angelShadow.position.set(wx(A.x), Y0 + 0.03, wz(A.y)); angelShadow.material.opacity = 0.55 * (1 - clamp(A.dying / 2.6, 0, 1));
     angelRing.position.set(wx(A.x), Y0 + 0.035, wz(A.y));
     // Rota
     const showR = !(state === "down" || state === "intro" || state === "won" || state === "loading");
@@ -1430,10 +1498,7 @@ function start() {
     const burnK = SHADE.vis * SHADE.lit;
     hemi.intensity = HEMI * (1 - 0.6 * burnK); keyL.intensity = KEY * (1 - 0.75 * burnK);
     renderer.toneMappingExposure = EXPO + 0.15 * burnK;
-    // camera: fixed, with a slight drift so the scene breathes
-    const sh = shake > 0.005 ? shake : 0;
-    cam.position.set(CAM.pos[0] + Math.sin(simT * 0.21) * 0.2 + rnd(-sh, sh), Y0 + CAM.pos[1] + rnd(-sh, sh), CAM.pos[2]);
-    cam.lookAt(CAM.look[0], Y0 + CAM.look[1], CAM.look[2]);
+    placeCamera(dt);
     glEl.style.filter = impact > 0 ? "grayscale(1) contrast(6) brightness(1.05)" : "";
     renderer.render(scene, cam);
     if (!Q.has("norays")) renderRays();
@@ -1549,7 +1614,7 @@ function start() {
   function overlaySpec() {
     if (overlay === "intro") return { th: "stone", w: 392, eye: "셋째 날 · 천사의 고원", title: "천사가 내려온다", btn: ["startBtn", "일지를 덮고 일어선다"],
       rules: ["빛의 울타리 안에서 <b>빛을 피하세요.</b> 맞는 곳은 로타 발밑의 빨간 점뿐이에요.", "빛이 곁을 스쳐 지나가면 로타의 그림자가 반대쪽으로 뻗어요. 그림자가 <b>천사의 발치</b>에 닿으면 천사를 쳐요.", "피하기만 해도 돼요. 한 차례를 버틸 때마다 천사의 빛이 바래고 날개의 눈이 감겨요.", "차례 사이에 <b>일지</b>를 펴거나 <b>하늘</b>을 보며 숨을 고를 수 있어요."],
-      keys: touch ? [["화면 끌기", "끈 만큼 움직임"]] : [["방향키 / WASD", "이동, 행동 고르기"], ["Shift", "천천히 움직이기"], ["Z / Enter", "정하기, 글 넘기기"]] };
+      keys: touch ? [["화면 끌기", "위로 끌면 천사 쪽, 옆으로 끌면 천사 둘레"]] : [["위 / 아래", "천사 쪽으로, 멀리"], ["좌 / 우", "천사 둘레를 돎"], ["Shift", "천천히 움직이기"], ["Z / Enter", "정하기, 글 넘기기"]] };
     if (overlay === "journal") { const p = PATTERNS[nextKey]; return { th: "paper", w: 320, eye: "카엘룸의 일지", title: p.name + "에 관하여", body: p.page, aside: "이번 차례에는 그림자가 가야 할 길과 빛의 길이 점선으로 보여요. 남은 장 " + jUses + "장.", btn: ["jClose", "일지를 덮고 맞선다"] }; }
     if (overlay === "lose") return { th: "stone", w: 290, eye: "로타가 쓰러졌다", title: "빛이 너무 밝았다", body: ["다시 일어나게. 빛이 있는 한 그림자도 있다네."], btn: ["retryBtn", "이 차례부터 다시"] };
     return { th: "paper", w: 320, eye: "그날 밤 · 로타는 맹세를 깨고 일지를 넘겼다", title: "괴물에 관하여", body: ["천사를 넘었다면, 남은 것은 정상뿐이네.", "괴물은 천사보다 훨씬 약하니 걱정 말게.", "<b>너도 꼭, 나와 같이 하늘 같은 자가 되길.</b>"], aside: winStat, btn: ["againBtn", "처음부터 다시"] };
