@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true"
+    android:keepScreenOn="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- BPM 설정 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/bpmMinus"
+                android:layout_width="64dp"
+                android:layout_height="match_parent"
+                android:background="@drawable/surface_bg"
+                android:text="@string/minus"
+                android:textColor="@color/text"
+                android:textSize="28sp" />
+
+            <TextView
+                android:id="@+id/bpmText"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?android:attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:textColor="@color/text"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/bpmPlus"
+                android:layout_width="64dp"
+                android:layout_height="match_parent"
+                android:background="@drawable/surface_bg"
+                android:text="@string/plus"
+                android:textColor="@color/text"
+                android:textSize="28sp" />
+        </LinearLayout>
+
+        <!-- 결과 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/beatText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:textColor="@color/text"
+                android:textSize="88sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/detailText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/text_dim"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/historyText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:lineSpacingExtra="2dp"
+                android:textColor="@color/text_dim"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <!-- 탭 버튼 -->
+        <TextView
+            android:id="@+id/tapButton"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@drawable/tap_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:soundEffectsEnabled="false"
+            android:text="@string/tap"
+            android:textColor="@color/bg"
+            android:textSize="48sp"
+            android:textStyle="bold" />
+
+        <!-- 리셋 -->
+        <Button
+            android:id="@+id/resetButton"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/surface_bg"
+            android:text="@string/reset"
+            android:textColor="@color/text"
+            android:textSize="20sp" />
+    </LinearLayout>
+</FrameLayout>
