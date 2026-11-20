@@ -8,10 +8,11 @@ import android.os.Bundle;
 import android.text.InputType;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.ListView;
 import android.widget.TextView;
 
-import java.util.ArrayDeque;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
@@ -21,15 +22,17 @@ public class MainActivity extends Activity {
     private static final int MAX_BPM = 400;
     /** 반올림 단위: 1/4박 (16분음표) */
     private static final double ROUND_STEP = 0.25;
-    private static final int MAX_HISTORY = 6;
+    /** 기록 최대 개수 (넘으면 가장 오래된 것부터 지움) */
+    private static final int MAX_HISTORY = 1000;
 
     private int bpm = DEFAULT_BPM;
     /** 마지막 탭 시각 (SystemClock.uptimeMillis 기준), -1 = 아직 없음 */
     private long lastTapTime = -1;
     private int intervalCount = 0;
-    private final ArrayDeque<String> history = new ArrayDeque<>();
 
-    private TextView bpmText, beatText, detailText, historyText;
+    private TextView bpmText, beatText, detailText;
+    private ListView historyList;
+    private ArrayAdapter<String> historyAdapter;
     private SharedPreferences prefs;
 
     @SuppressLint("ClickableViewAccessibility")
@@ -41,7 +44,9 @@ public class MainActivity extends Activity {
         bpmText = findViewById(R.id.bpmText);
         beatText = findViewById(R.id.beatText);
         detailText = findViewById(R.id.detailText);
-        historyText = findViewById(R.id.historyText);
+        historyList = findViewById(R.id.historyList);
+        historyAdapter = new ArrayAdapter<>(this, R.layout.history_item);
+        historyList.setAdapter(historyAdapter);
 
         prefs = getSharedPreferences("beattap", MODE_PRIVATE);
         bpm = clampBpm(prefs.getInt("bpm", DEFAULT_BPM));
@@ -96,19 +101,21 @@ public class MainActivity extends Activity {
         beatText.setText(formatBeats(rounded) + "박");
         detailText.setText(String.format(Locale.US, "실제 %.2f박 · %dms", beats, ms));
 
-        history.addFirst(String.format(Locale.US, "#%-3d %6s박  (%.2f)",
-                intervalCount, formatBeats(rounded), beats));
-        while (history.size() > MAX_HISTORY) history.removeLast();
-        historyText.setText(String.join("\n", history));
+        // 최신 기록이 맨 위
+        historyAdapter.insert(String.format(Locale.US, "#%-4d %6s박  (%.2f)",
+                intervalCount, formatBeats(rounded), beats), 0);
+        while (historyAdapter.getCount() > MAX_HISTORY) {
+            historyAdapter.remove(historyAdapter.getItem(historyAdapter.getCount() - 1));
+        }
+        historyList.setSelection(0);
     }
 
     private void resetBeat() {
         lastTapTime = -1;
         intervalCount = 0;
-        history.clear();
+        historyAdapter.clear();
         beatText.setText("—");
         detailText.setText("TAP을 눌러 시작하세요");
-        historyText.setText("");
     }
 
     private void setBpm(int value) {

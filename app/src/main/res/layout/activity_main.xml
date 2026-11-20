@@ -52,48 +52,51 @@
         </LinearLayout>
 
         <!-- 결과 -->
-        <LinearLayout
+        <TextView
+            android:id="@+id/beatText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
+            android:includeFontPadding="false"
+            android:textColor="@color/text"
+            android:textSize="80sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/detailText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/text_dim"
+            android:textSize="18sp" />
+
+        <!-- 기록 (위아래 스와이프로 스크롤) -->
+        <ListView
+            android:id="@+id/historyList"
             android:layout_width="match_parent"
             android:layout_height="0dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
             android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/beatText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:includeFontPadding="false"
-                android:textColor="@color/text"
-                android:textSize="88sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/detailText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textColor="@color/text_dim"
-                android:textSize="18sp" />
-
-            <TextView
-                android:id="@+id/historyText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:fontFamily="monospace"
-                android:gravity="center"
-                android:lineSpacingExtra="2dp"
-                android:textColor="@color/text_dim"
-                android:textSize="15sp" />
-        </LinearLayout>
+            android:background="@drawable/list_bg"
+            android:divider="@null"
+            android:listSelector="@android:color/transparent"
+            android:fadeScrollbars="false"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:clipToPadding="false"
+            android:requiresFadingEdge="vertical"
+            android:fadingEdgeLength="24dp"
+            android:scrollbarStyle="insideOverlay" />
 
         <!-- 탭 버튼 -->
         <TextView
             android:id="@+id/tapButton"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_weight="1.2"
             android:background="@drawable/tap_bg"
             android:clickable="true"
             android:focusable="true"
